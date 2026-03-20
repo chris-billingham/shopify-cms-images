@@ -4,6 +4,8 @@ import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
 import authRoutes from './routes/auth.js';
 import assetsRoutes from './routes/assets.js';
+import productsRoutes from './routes/products.js';
+import tagsRoutes from './routes/tags.js';
 import { config } from './config/index.js';
 
 export function buildApp() {
@@ -26,6 +28,8 @@ export function buildApp() {
 
   app.register(authRoutes, { prefix: '/api/auth' });
   app.register(assetsRoutes, { prefix: '/api/assets' });
+  app.register(productsRoutes, { prefix: '/api/products' });
+  app.register(tagsRoutes, { prefix: '/api/tags' });
 
   app.get('/api/health', async (_request, reply) => {
     return reply.send({ status: 'ok' });
