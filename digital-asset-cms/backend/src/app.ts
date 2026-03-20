@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.js';
 import assetsRoutes from './routes/assets.js';
 import productsRoutes from './routes/products.js';
 import tagsRoutes from './routes/tags.js';
+import searchRoutes from './routes/search.js';
 import { config } from './config/index.js';
 
 export function buildApp() {
@@ -30,6 +31,7 @@ export function buildApp() {
   app.register(assetsRoutes, { prefix: '/api/assets' });
   app.register(productsRoutes, { prefix: '/api/products' });
   app.register(tagsRoutes, { prefix: '/api/tags' });
+  app.register(searchRoutes, { prefix: '/api/search' });
 
   app.get('/api/health', async (_request, reply) => {
     return reply.send({ status: 'ok' });
