@@ -1,7 +1,9 @@
 import Fastify from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
+import fastifyMultipart from '@fastify/multipart';
 import authRoutes from './routes/auth.js';
+import assetsRoutes from './routes/assets.js';
 import { config } from './config/index.js';
 
 export function buildApp() {
@@ -17,7 +19,13 @@ export function buildApp() {
     credentials: true,
   });
 
+  // Multipart support for file uploads (1 GB max — per-MIME limits enforced in service)
+  app.register(fastifyMultipart, {
+    limits: { fileSize: 1024 * 1024 * 1024 },
+  });
+
   app.register(authRoutes, { prefix: '/api/auth' });
+  app.register(assetsRoutes, { prefix: '/api/assets' });
 
   app.get('/api/health', async (_request, reply) => {
     return reply.send({ status: 'ok' });
