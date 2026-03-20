@@ -1,0 +1,37 @@
+{
+  "name": "digital-asset-cms-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.x",
+    "axios": "^1.x",
+    "react": "^18.x",
+    "react-dom": "^18.x",
+    "react-router-dom": "^6.x",
+    "zustand": "^5.x"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.x",
+    "@testing-library/react": "^16.x",
+    "@types/react": "^18.x",
+    "@types/react-dom": "^18.x",
+    "@vitejs/plugin-react": "^4.x",
+    "autoprefixer": "^10.x",
+    "jsdom": "^25.x",
+    "msw": "^2.x",
+    "postcss": "^8.x",
+    "tailwindcss": "^3.x",
+    "typescript": "^5.x",
+    "vite": "^5.x",
+    "vitest": "^2.x"
+  }
+}

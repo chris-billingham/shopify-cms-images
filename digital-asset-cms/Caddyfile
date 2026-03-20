@@ -1,0 +1,27 @@
+cms.yourdomain.com {
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+  }
+
+  @websocket {
+    path /api/ws
+    header Connection *Upgrade*
+    header Upgrade websocket
+  }
+  reverse_proxy @websocket app:3000
+
+  @api {
+    path /api/*
+  }
+  reverse_proxy @api app:3000
+
+  reverse_proxy frontend:80
+}
+
+preview.cms.yourdomain.com {
+  header X-Frame-Options "SAMEORIGIN"
+  header Content-Security-Policy "sandbox allow-scripts"
+  reverse_proxy frontend:80
+}
