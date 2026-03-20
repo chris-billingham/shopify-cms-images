@@ -1,4 +1,9 @@
 import knex, { type Knex } from 'knex';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const testDbConfig: Knex.Config = {
   client: 'postgresql',
@@ -11,7 +16,7 @@ const testDbConfig: Knex.Config = {
   },
   pool: { min: 1, max: 5 },
   migrations: {
-    directory: '../../src/db/migrations',
+    directory: resolve(__dirname, '../../src/db/migrations'),
     extension: 'ts',
   },
 };
