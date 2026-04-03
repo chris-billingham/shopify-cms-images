@@ -9,6 +9,8 @@ import {
   downloadAsset,
   checkDuplicate,
   listAssets,
+  replaceAsset,
+  getAssetVersions,
   AssetValidationError,
   AssetNotFoundError,
   OptimisticLockError,
@@ -221,6 +223,57 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
       reply.header('Content-Disposition', `attachment; filename="${asset['file_name'] as string}"`);
       reply.header('Content-Type', asset['mime_type'] as string);
       return reply.send(stream);
+    } catch (err) {
+      if (err instanceof AssetNotFoundError) {
+        return reply.status(404).send({ error: { code: 'ASSET_NOT_FOUND', message: err.message } });
+      }
+      throw err;
+    }
+  });
+
+  // ── POST /api/assets/:id/replace — transactional version replace ──────────
+  fastify.post(
+    '/:id/replace',
+    { preHandler: [authenticate, requireRole('editor', 'admin')] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+
+      const part = await request.file().catch(() => null);
+      if (!part) {
+        return reply.status(400).send({ error: { code: 'NO_FILE', message: 'No file provided in multipart body' } });
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of part.file) {
+        chunks.push(chunk as Buffer);
+      }
+      const buffer = Buffer.concat(chunks);
+
+      try {
+        const newAsset = await replaceAsset(
+          id,
+          { fileName: part.filename, mimeType: part.mimetype, buffer },
+          request.user!.user_id
+        );
+        return reply.status(201).send(newAsset);
+      } catch (err) {
+        if (err instanceof AssetNotFoundError) {
+          return reply.status(404).send({ error: { code: 'ASSET_NOT_FOUND', message: err.message } });
+        }
+        if (err instanceof AssetValidationError) {
+          return reply.status(400).send({ error: { code: err.code, message: err.message } });
+        }
+        throw err;
+      }
+    }
+  );
+
+  // ── GET /api/assets/:id/versions — version history ────────────────────────
+  fastify.get('/:id/versions', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      const versions = await getAssetVersions(id);
+      return reply.send({ versions });
     } catch (err) {
       if (err instanceof AssetNotFoundError) {
         return reply.status(404).send({ error: { code: 'ASSET_NOT_FOUND', message: err.message } });

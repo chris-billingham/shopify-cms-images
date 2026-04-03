@@ -254,3 +254,97 @@ export async function listAssets(filters?: {
   if (filters?.offset) query = query.offset(filters.offset);
   return (await query.orderBy('created_at', 'desc')) as Record<string, unknown>[];
 }
+
+export interface ReplaceAssetInput {
+  fileName: string;
+  mimeType: string;
+  buffer: Buffer;
+}
+
+export async function replaceAsset(
+  id: string,
+  input: ReplaceAssetInput,
+  userId: string | null,
+  drive: DriveService = _defaultDriveService
+): Promise<Record<string, unknown>> {
+  const oldAsset = await db('assets').where('id', id).whereNot('status', 'deleted').first();
+  if (!oldAsset) throw new AssetNotFoundError(id);
+
+  const { fileName, mimeType, buffer } = input;
+  const fileSizeBytes = buffer.length;
+  const { assetType } = validateMimeAndSize(mimeType, fileSizeBytes);
+
+  const stream = Readable.from(buffer);
+  const { id: newDriveId, webViewLink } = await drive.uploadFile(stream, {
+    name: fileName,
+    mimeType,
+    size: fileSizeBytes,
+  });
+
+  let newAsset: Record<string, unknown>;
+  try {
+    await db.transaction(async (trx) => {
+      const [inserted] = await trx('assets')
+        .insert({
+          file_name: fileName,
+          asset_type: assetType,
+          mime_type: mimeType,
+          file_size_bytes: fileSizeBytes,
+          google_drive_id: newDriveId,
+          google_drive_url: webViewLink || null,
+          status: 'active',
+          tags: JSON.stringify(oldAsset.tags ?? {}),
+          version: (oldAsset.version as number) + 1,
+          parent_asset_id: oldAsset.id,
+          uploaded_by: userId,
+        })
+        .returning('*');
+      newAsset = inserted as Record<string, unknown>;
+
+      await trx('asset_products')
+        .where('asset_id', oldAsset.id)
+        .update({ asset_id: newAsset['id'] });
+
+      await trx('assets')
+        .where('id', oldAsset.id)
+        .update({ status: 'archived', updated_at: new Date() });
+
+      await trx('audit_log').insert({
+        user_id: userId,
+        action: 'version',
+        entity_type: 'asset',
+        entity_id: newAsset['id'],
+        details: JSON.stringify({
+          previous_version: oldAsset.version,
+          new_version: newAsset['version'],
+          previous_drive_id: oldAsset.google_drive_id,
+          new_drive_id: newDriveId,
+        }),
+      });
+    });
+  } catch (err) {
+    await drive.trashFile(newDriveId).catch(() => {});
+    throw err;
+  }
+
+  await refreshSearchView().catch(() => {});
+  return newAsset!;
+}
+
+export async function getAssetVersions(id: string): Promise<Record<string, unknown>[]> {
+  const asset = await db('assets').where('id', id).first();
+  if (!asset) throw new AssetNotFoundError(id);
+
+  const result = await db.raw<{ rows: Record<string, unknown>[] }>(
+    `WITH RECURSIVE versions AS (
+       SELECT * FROM assets WHERE id = ?
+       UNION ALL
+       SELECT a.* FROM assets a
+       JOIN versions v ON a.id = v.parent_asset_id
+     )
+     SELECT * FROM versions ORDER BY version ASC`,
+    [id]
+  );
+
+  return result.rows;
+}
