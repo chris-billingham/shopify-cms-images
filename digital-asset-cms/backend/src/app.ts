@@ -10,6 +10,7 @@ import productsRoutes from './routes/products.js';
 import tagsRoutes from './routes/tags.js';
 import searchRoutes from './routes/search.js';
 import jobsRoutes from './routes/jobs.js';
+import shopifyRoutes from './routes/shopify.js';
 import { verifyAccessToken } from './services/auth.service.js';
 import { handleConnection } from './websocket/handler.js';
 import { config } from './config/index.js';
@@ -40,6 +41,7 @@ export function buildApp() {
   app.register(tagsRoutes, { prefix: '/api/tags' });
   app.register(searchRoutes, { prefix: '/api/search' });
   app.register(jobsRoutes, { prefix: '/api/jobs' });
+  app.register(shopifyRoutes, { prefix: '/api/shopify' });
 
   app.get('/api/health', async (_request, reply) => {
     return reply.send({ status: 'ok' });
