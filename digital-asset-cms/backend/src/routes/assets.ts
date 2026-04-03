@@ -14,6 +14,7 @@ import {
   OptimisticLockError,
 } from '../services/asset.service.js';
 import { checkIdempotencyKey, storeIdempotencyResult } from '../utils/idempotency.js';
+import { submitBulkDownload, processBulkDownload, BulkDownloadError } from '../jobs/bulk-download.js';
 
 const assetsRoutes: FastifyPluginAsync = async (fastify) => {
   // Rate limit CRUD: 120 req/min per user (keyed by Authorization header user_id or IP)
@@ -39,6 +40,38 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
     });
     return reply.send({ assets, total: assets.length });
   });
+
+  // ── POST /api/assets/bulk-download — create background ZIP job ────────────
+  // Rate limit: 5 req/min for bulk operations (§5.3); must come before /:id
+  fastify.post(
+    '/bulk-download',
+    { preHandler: [authenticate, requireRole('editor', 'admin')] },
+    async (request, reply) => {
+      const body = request.body as { asset_ids?: unknown };
+      const assetIds = body?.asset_ids;
+
+      if (!Array.isArray(assetIds) || assetIds.length === 0) {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: 'asset_ids must be a non-empty array' },
+        });
+      }
+
+      try {
+        const { jobId, totalSizeBytes, assetCount } = await submitBulkDownload(
+          assetIds as string[],
+          request.user!.user_id
+        );
+        // Fire off processing in the background; caller polls GET /api/jobs/:id
+        void processBulkDownload(jobId, assetIds as string[]);
+        return reply.status(202).send({ job_id: jobId, asset_count: assetCount, total_size_bytes: totalSizeBytes });
+      } catch (err) {
+        if (err instanceof BulkDownloadError) {
+          return reply.status(400).send({ error: { code: err.code, message: err.message } });
+        }
+        throw err;
+      }
+    }
+  );
 
   // ── GET /api/assets/check-duplicate — must come before /:id ───────────────
   fastify.get('/check-duplicate', { preHandler: [authenticate] }, async (request, reply) => {

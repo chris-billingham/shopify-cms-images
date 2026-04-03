@@ -7,6 +7,7 @@ import assetsRoutes from './routes/assets.js';
 import productsRoutes from './routes/products.js';
 import tagsRoutes from './routes/tags.js';
 import searchRoutes from './routes/search.js';
+import jobsRoutes from './routes/jobs.js';
 import { config } from './config/index.js';
 
 export function buildApp() {
@@ -32,6 +33,7 @@ export function buildApp() {
   app.register(productsRoutes, { prefix: '/api/products' });
   app.register(tagsRoutes, { prefix: '/api/tags' });
   app.register(searchRoutes, { prefix: '/api/search' });
+  app.register(jobsRoutes, { prefix: '/api/jobs' });
 
   app.get('/api/health', async (_request, reply) => {
     return reply.send({ status: 'ok' });
