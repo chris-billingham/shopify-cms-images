@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
+import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 import {
   getProduct,
   listProducts,
@@ -15,6 +17,15 @@ import {
 } from '../services/link.service.js';
 
 const productsRoutes: FastifyPluginAsync = async (fastify) => {
+  // Rate limit: 120 req/min per user (§5.2)
+  await fastify.register(fastifyRateLimit, {
+    max: 120,
+    timeWindow: '1 minute',
+    keyGenerator: crudRateLimitKey,
+    errorResponseBuilder: rateLimitErrorBuilder,
+    addHeaders: RATE_LIMIT_HEADERS,
+  });
+
   // ── GET /api/products ──────────────────────────────────────────────────────
   fastify.get('/', { preHandler: [authenticate] }, async (request, reply) => {
     const q = request.query as { q?: string; limit?: string; offset?: string };

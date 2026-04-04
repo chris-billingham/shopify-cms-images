@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import Fastify, { type FastifyRequest, type FastifyReply } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
@@ -11,15 +12,33 @@ import tagsRoutes from './routes/tags.js';
 import searchRoutes from './routes/search.js';
 import jobsRoutes from './routes/jobs.js';
 import shopifyRoutes from './routes/shopify.js';
+import healthRoutes from './routes/health.js';
+import { globalErrorHandler } from './middleware/error-handler.js';
 import { verifyAccessToken } from './services/auth.service.js';
 import { handleConnection } from './websocket/handler.js';
 import { config } from './config/index.js';
 
 export function buildApp() {
   const app = Fastify({
-    logger: process.env['NODE_ENV'] !== 'test',
+    logger:
+      process.env['NODE_ENV'] !== 'test'
+        ? {
+            level: config.LOG_LEVEL,
+            serializers: {
+              req: (req) => ({
+                method: req.method,
+                url: req.url,
+                requestId: req.id,
+              }),
+            },
+          }
+        : false,
+    genReqId: () => randomUUID(),
     trustProxy: true, // enables X-Forwarded-For for rate limiting
   });
+
+  // Global error handler at root scope — applies to all routes
+  app.setErrorHandler(globalErrorHandler);
 
   app.register(fastifyCookie);
 
@@ -42,10 +61,7 @@ export function buildApp() {
   app.register(searchRoutes, { prefix: '/api/search' });
   app.register(jobsRoutes, { prefix: '/api/jobs' });
   app.register(shopifyRoutes, { prefix: '/api/shopify' });
-
-  app.get('/api/health', async (_request, reply) => {
-    return reply.send({ status: 'ok' });
-  });
+  app.register(healthRoutes, { prefix: '/api/health' });
 
   // ── WebSocket endpoint (/api/ws?token=<jwt>) ──────────────────────────────
   // Must be inside a register() context so @fastify/websocket's onRoute hook fires

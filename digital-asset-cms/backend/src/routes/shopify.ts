@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
+import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 import { db } from '../db/connection.js';
 import { driveService } from '../services/drive.service.js';
 import { shopifyService } from '../services/shopify.service.js';
@@ -16,6 +18,15 @@ import {
 } from '../jobs/shopify-reconcile.js';
 
 const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
+  // Rate limit: 120 req/min per user (§5.2)
+  await fastify.register(fastifyRateLimit, {
+    max: 120,
+    timeWindow: '1 minute',
+    keyGenerator: crudRateLimitKey,
+    errorResponseBuilder: rateLimitErrorBuilder,
+    addHeaders: RATE_LIMIT_HEADERS,
+  });
+
   // ── POST /api/shopify/sync-products — background job ─────────────────────
   fastify.post(
     '/sync-products',

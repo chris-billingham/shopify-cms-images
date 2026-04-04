@@ -1,8 +1,19 @@
 import type { FastifyPluginAsync } from 'fastify';
+import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate } from '../middleware/auth.js';
 import { db } from '../db/connection.js';
+import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 
 const tagsRoutes: FastifyPluginAsync = async (fastify) => {
+  // Rate limit: 120 req/min per user (§5.2)
+  await fastify.register(fastifyRateLimit, {
+    max: 120,
+    timeWindow: '1 minute',
+    keyGenerator: crudRateLimitKey,
+    errorResponseBuilder: rateLimitErrorBuilder,
+    addHeaders: RATE_LIMIT_HEADERS,
+  });
+
   // ── GET /api/tags/keys — distinct tag keys ─────────────────────────────────
   fastify.get('/keys', { preHandler: [authenticate] }, async (_request, reply) => {
     const rows = await db.raw<{ rows: Array<{ key: string }> }>(`

@@ -2,10 +2,21 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import type { FastifyPluginAsync } from 'fastify';
+import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate } from '../middleware/auth.js';
 import { getJob } from '../services/job.service.js';
+import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 
 const jobsRoutes: FastifyPluginAsync = async (fastify) => {
+  // Rate limit: 120 req/min per user (§5.2)
+  await fastify.register(fastifyRateLimit, {
+    max: 120,
+    timeWindow: '1 minute',
+    keyGenerator: crudRateLimitKey,
+    errorResponseBuilder: rateLimitErrorBuilder,
+    addHeaders: RATE_LIMIT_HEADERS,
+  });
+
   // GET /api/jobs/:id — job status, progress, and result
   fastify.get('/:id', { preHandler: [authenticate] }, async (request, reply) => {
     const { id } = request.params as { id: string };

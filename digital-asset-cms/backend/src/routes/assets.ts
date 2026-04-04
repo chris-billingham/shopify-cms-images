@@ -17,19 +17,16 @@ import {
 } from '../services/asset.service.js';
 import { checkIdempotencyKey, storeIdempotencyResult } from '../utils/idempotency.js';
 import { submitBulkDownload, processBulkDownload, BulkDownloadError } from '../jobs/bulk-download.js';
+import { rateLimitErrorBuilder, crudRateLimitKey, bulkRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 
 const assetsRoutes: FastifyPluginAsync = async (fastify) => {
-  // Rate limit CRUD: 120 req/min per user (keyed by Authorization header user_id or IP)
+  // Rate limit CRUD: 120 req/min per user (keyed by user_id from JWT, or IP)
   await fastify.register(fastifyRateLimit, {
     max: 120,
     timeWindow: '1 minute',
-    keyGenerator: (request) => request.ip,
-    addHeaders: {
-      'x-ratelimit-limit': true,
-      'x-ratelimit-remaining': true,
-      'x-ratelimit-reset': true,
-      'retry-after': true,
-    },
+    keyGenerator: crudRateLimitKey,
+    errorResponseBuilder: rateLimitErrorBuilder,
+    addHeaders: RATE_LIMIT_HEADERS,
   });
 
   // ── GET /api/assets — list assets (non-deleted by default) ─────────────────
@@ -44,10 +41,20 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /api/assets/bulk-download — create background ZIP job ────────────
-  // Rate limit: 5 req/min for bulk operations (§5.3); must come before /:id
+  // Bulk operations: 5 req/min per user via per-route config (overrides the 120/min global)
   fastify.post(
     '/bulk-download',
-    { preHandler: [authenticate, requireRole('editor', 'admin')] },
+    {
+      config: {
+        rateLimit: {
+          max: 5,
+          timeWindow: '1 minute',
+          keyGenerator: bulkRateLimitKey,
+          errorResponseBuilder: rateLimitErrorBuilder,
+        },
+      },
+      preHandler: [authenticate, requireRole('editor', 'admin')],
+    },
     async (request, reply) => {
       const body = request.body as { asset_ids?: unknown };
       const assetIds = body?.asset_ids;
@@ -95,7 +102,7 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.send(asset);
     } catch (err) {
       if (err instanceof AssetNotFoundError) {
-        return reply.status(404).send({ error: { code: 'ASSET_NOT_FOUND', message: err.message } });
+        return reply.status(404).send({ error: { code: 'ASSET_NOT_FOUND', message: err.message, details: {} } });
       }
       throw err;
     }

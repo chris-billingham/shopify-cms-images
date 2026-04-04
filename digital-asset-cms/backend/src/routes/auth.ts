@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import fastifyRateLimit from '@fastify/rate-limit';
+import { rateLimitErrorBuilder, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 import { db } from '../db/connection.js';
 import { config } from '../config/index.js';
 import {
@@ -24,13 +25,9 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(fastifyRateLimit, {
     max: 10,
     timeWindow: '1 minute',
-    keyGenerator: (request) => request.ip,
-    addHeaders: {
-      'x-ratelimit-limit': true,
-      'x-ratelimit-remaining': true,
-      'x-ratelimit-reset': true,
-      'retry-after': true,
-    },
+    keyGenerator: (request) => `auth:ip:${request.ip}`,
+    errorResponseBuilder: rateLimitErrorBuilder,
+    addHeaders: RATE_LIMIT_HEADERS,
   });
 
   // POST /api/auth/login — email + password

@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth.js';
 import { verifyAccessToken } from '../services/auth.service.js';
 import { config } from '../config/index.js';
 import { searchAssets } from '../services/search.service.js';
+import { rateLimitErrorBuilder, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 
 const searchRoutes: FastifyPluginAsync = async (fastify) => {
   // Rate limit: 30 req/min per authenticated user (keyed by user_id extracted from JWT)
@@ -22,12 +23,8 @@ const searchRoutes: FastifyPluginAsync = async (fastify) => {
       }
       return `search:ip:${request.ip}`;
     },
-    addHeaders: {
-      'x-ratelimit-limit': true,
-      'x-ratelimit-remaining': true,
-      'x-ratelimit-reset': true,
-      'retry-after': true,
-    },
+    errorResponseBuilder: rateLimitErrorBuilder,
+    addHeaders: RATE_LIMIT_HEADERS,
   });
 
   fastify.get('/', { preHandler: [authenticate] }, async (request, reply) => {
