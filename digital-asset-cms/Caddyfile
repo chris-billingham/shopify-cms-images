@@ -1,10 +1,15 @@
-cms.yourdomain.com {
+# CMS_HOST defaults to http://localhost for local/test use.
+# In production set: CMS_HOST=cms.yourdomain.com (Caddy auto-provisions TLS).
+{$CMS_HOST:http://localhost} {
   header {
     Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-    X-Content-Type-Options "nosniff"
-    X-Frame-Options "DENY"
+    X-Content-Type-Options  "nosniff"
+    X-Frame-Options         "DENY"
+    Referrer-Policy         "strict-origin-when-cross-origin"
+    Permissions-Policy      "geolocation=(), microphone=(), camera=()"
   }
 
+  # WebSocket upgrade must be matched before the generic /api/* block
   @websocket {
     path /api/ws
     header Connection *Upgrade*
@@ -17,11 +22,14 @@ cms.yourdomain.com {
   }
   reverse_proxy @api app:3000
 
+  # Everything else → React SPA served by nginx
   reverse_proxy frontend:80
 }
 
-preview.cms.yourdomain.com {
-  header X-Frame-Options "SAMEORIGIN"
-  header Content-Security-Policy "sandbox allow-scripts"
+# Preview subdomain — sandboxed iframe previews with restrictive CSP
+# Set PREVIEW_HOST=preview.cms.yourdomain.com in production.
+{$PREVIEW_HOST:http://preview.localhost} {
+  header X-Frame-Options         "SAMEORIGIN"
+  header Content-Security-Policy "sandbox allow-scripts; default-src 'none'"
   reverse_proxy frontend:80
 }

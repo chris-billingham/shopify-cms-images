@@ -1,0 +1,11 @@
+{
+  "name": "digital-asset-cms",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "scripts": {
+    "test:docker": "vitest run --config tests/docker/vitest.config.ts"
+  }
+}

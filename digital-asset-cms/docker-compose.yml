@@ -4,13 +4,18 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      CMS_HOST: ${CMS_HOST:-http://localhost}
+      PREVIEW_HOST: ${PREVIEW_HOST:-http://preview.localhost}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - app
-      - frontend
+      app:
+        condition: service_healthy
+      frontend:
+        condition: service_started
     restart: unless-stopped
 
   app:
@@ -24,16 +29,16 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 40s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   worker:
     build: ./backend
-    command: ["node", "dist/worker.js"]
+    command: ["node", "dist/src/worker.js"]
     env_file: .env
     depends_on:
       db:
@@ -45,6 +50,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   frontend:
@@ -54,24 +60,19 @@ services:
     restart: unless-stopped
 
   db:
-    image: postgres:16
+    image: postgres:16-alpine
     environment:
       POSTGRES_DB: cms
       POSTGRES_USER: cms_user
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./backups:/backups
-    command: >
-      postgres
-      -c wal_level=replica
-      -c archive_mode=on
-      -c archive_command='cp %p /backups/wal/%f'
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cms_user -d cms"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   redis:
@@ -90,14 +91,22 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Optional: rclone-based backup sync.
+  # Only starts when the "backup" profile is active:
+  #   docker compose --profile backup up -d
   backup-sync:
+    profiles: [backup]
     image: rclone/rclone:latest
     volumes:
       - ./backups:/backups:ro
       - ./rclone.conf:/config/rclone/rclone.conf:ro
+    entrypoint: /bin/sh
     command: >
-      rclone sync /backups remote:cms-backups
-      --config /config/rclone/rclone.conf
+      -c "while true; do
+        rclone sync /backups remote:cms-backups
+          --config /config/rclone/rclone.conf --log-level INFO;
+        sleep 3600;
+      done"
     restart: unless-stopped
 
 volumes:

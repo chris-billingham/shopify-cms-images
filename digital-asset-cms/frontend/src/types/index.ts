@@ -111,3 +111,46 @@ export function getAssetType(mimeType: string): AssetType | null {
   if (mimeType === 'application/pdf') return 'document';
   return null;
 }
+
+export interface LinkedAsset {
+  id: string;
+  asset_id: string;
+  file_name: string;
+  thumbnail_url?: string;
+  asset_type: AssetType;
+  sort_order: number;
+}
+
+export type JobStatus = 'waiting' | 'active' | 'completed' | 'failed';
+
+export interface Job {
+  id: string;
+  name: string;
+  status: JobStatus;
+  progress: number; // 0–100
+  created_at: string;
+  completed_at?: string;
+  error?: string;
+}
+
+export interface JobProgressPayload {
+  jobId: string;
+  jobName: string;
+  progress: number;
+  status: JobStatus;
+}
+
+export type WebSocketMessageType = 'job_progress' | 'asset_updated' | 'ping' | 'pong';
+
+export interface WebSocketMessage {
+  type: WebSocketMessageType;
+  payload?: unknown;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  role: UserRole;
+  status: 'active' | 'deactivated';
+  created_at: string;
+}

@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { SearchInput } from './SearchInput';
 import { FacetSidebar } from './FacetSidebar';
 import { Asset, ActiveFilters, SearchResult } from '../types';
 import { apiClient } from '../api/client';
+import { usePermissions } from '../hooks/usePermissions';
 
 interface AssetLibraryProps {
   onAssetClick?: (asset: Asset) => void;
@@ -29,6 +31,8 @@ async function fetchAssets(
 export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<ActiveFilters>({});
+  const { canUpload } = usePermissions();
+  const navigate = useNavigate();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['assets', 'search', searchQuery, filters],
@@ -44,8 +48,16 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
       />
 
       <div className="flex-1 flex flex-col min-w-0 ml-6">
-        <div className="mb-4">
+        <div className="flex items-center gap-3 mb-4">
           <SearchInput onSearch={setSearchQuery} />
+          {canUpload && (
+            <button
+              onClick={() => navigate('/upload')}
+              className="shrink-0 px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+            >
+              Upload
+            </button>
+          )}
         </div>
 
         {isLoading && (

@@ -48,8 +48,9 @@ const knexConfig: Record<string, Knex.Config> = {
       max: 20,
     },
     migrations: {
-      directory: './src/db/migrations',
-      extension: 'ts',
+      directory: './dist/src/db/migrations',
+      extension: 'js',
+      loadExtensions: ['.js'],
     },
   },
 };

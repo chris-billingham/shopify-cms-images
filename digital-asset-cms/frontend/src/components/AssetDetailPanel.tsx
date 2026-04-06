@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Asset } from '../types';
 import { apiClient } from '../api/client';
+import { usePermissions } from '../hooks/usePermissions';
 
 interface AssetDetailPanelProps {
   asset: Asset;
@@ -16,6 +17,7 @@ interface TagUpdatePayload {
 export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
   const [conflictError, setConflictError] = useState(false);
   const queryClient = useQueryClient();
+  const { canEditTags, canDelete } = usePermissions();
 
   const patchAsset = useMutation({
     mutationFn: async (payload: TagUpdatePayload) => {
@@ -118,7 +120,8 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
                 <button
                   onClick={() => handleTagRemove(key)}
                   aria-label={`Remove tag ${key}`}
-                  className="ml-1 text-blue-400 hover:text-blue-600"
+                  disabled={!canEditTags}
+                  className="ml-1 text-blue-400 hover:text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   ×
                 </button>
@@ -129,16 +132,20 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
       </div>
 
       {/* Actions */}
-      <div className="px-4 py-3 border-t flex gap-2">
+      <div className="px-4 py-3 border-t flex gap-2 flex-wrap">
         <button className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
           Download
         </button>
-        <button className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200">
-          Replace
-        </button>
-        <button className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200">
-          Push to Shopify
-        </button>
+        {canEditTags && (
+          <button className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200">
+            Replace
+          </button>
+        )}
+        {canDelete && (
+          <button className="px-3 py-1.5 bg-red-50 text-red-600 rounded text-sm hover:bg-red-100">
+            Delete
+          </button>
+        )}
       </div>
     </div>
   );

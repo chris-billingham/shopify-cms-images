@@ -6,21 +6,18 @@ export interface RateLimitContext {
   after: string;
   max: number;
   ttl: number;
-  ban?: number;
+  ban?: boolean;
   statusCode?: number;
 }
 
-export function rateLimitErrorBuilder(_request: FastifyRequest, context: RateLimitContext): Error {
-  const err = Object.assign(
-    new Error(`Rate limit exceeded. Retry after ${context.after}`),
-    {
-      statusCode: context.statusCode ?? 429,
-      code: 'RATE_LIMIT_EXCEEDED',
-      retryAfter: context.after,
-      limit: context.max,
-    }
-  );
-  return err;
+export function rateLimitErrorBuilder(_request: FastifyRequest, context: RateLimitContext): object {
+  return {
+    statusCode: context.statusCode ?? 429,
+    code: 'RATE_LIMIT_EXCEEDED',
+    message: `Rate limit exceeded. Retry after ${context.after}`,
+    retryAfter: context.after,
+    limit: context.max,
+  };
 }
 
 export function crudRateLimitKey(request: FastifyRequest): string {

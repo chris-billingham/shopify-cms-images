@@ -14,15 +14,18 @@ export async function processMvRefresh(): Promise<void> {
 }
 
 export function createMvRefreshQueue(connection: IORedis): Queue {
-  return new Queue(MV_REFRESH_QUEUE, { connection });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new Queue(MV_REFRESH_QUEUE, { connection: connection as any });
 }
 
 export function createMvRefreshWorker(connection: IORedis): Worker {
-  return new Worker(MV_REFRESH_QUEUE, processMvRefresh, { connection });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new Worker(MV_REFRESH_QUEUE, processMvRefresh, { connection: connection as any });
 }
 
 export function createMvRefreshQueueEvents(connection: IORedis): QueueEvents {
-  return new QueueEvents(MV_REFRESH_QUEUE, { connection });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new QueueEvents(MV_REFRESH_QUEUE, { connection: connection as any });
 }
 
 // Registers the 60-second repeating job — call once at app startup
