@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/authStore';
 import { usePermissions } from '../hooks/usePermissions';
 import { apiClient } from '../api/client';
@@ -6,6 +7,7 @@ import { apiClient } from '../api/client';
 export function Layout({ children }: { children: React.ReactNode }) {
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const role = useAuthStore((s) => s.role);
+  const accessToken = useAuthStore((s) => s.accessToken);
   const { canViewAdmin } = usePermissions();
   const navigate = useNavigate();
 
@@ -19,8 +21,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
     navigate('/login', { replace: true });
   };
 
-  const roleLabel = role ?? 'viewer';
-  const initials = roleLabel.slice(0, 2).toUpperCase();
+  const { data: me } = useQuery({
+    queryKey: ['users', 'me'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ user: { name: string; email: string; role: string } }>('/users/me');
+      return data.user;
+    },
+    enabled: !!accessToken,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const displayName = me?.name ?? role ?? '';
+  const initials = displayName
+    .split(' ')
+    .map((w) => w[0] ?? '')
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || (role ?? 'U').slice(0, 2).toUpperCase();
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', fontFamily: "'Architects Daughter', sans-serif" }}>
@@ -68,7 +85,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           }}>
             {initials}
           </div>
-          <span>{roleLabel}</span>
+          <div style={{ lineHeight: 1.2, textAlign: 'right' }}>
+            <div style={{ fontSize: 13 }}>{displayName}</div>
+            {me?.email && (
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+                {me.email}
+              </div>
+            )}
+          </div>
           <button onClick={handleLogout} className="btn-sketch sm">
             log out
           </button>

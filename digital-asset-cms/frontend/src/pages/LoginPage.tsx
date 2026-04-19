@@ -9,6 +9,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const setAccessToken = useAuthStore((s) => s.setAccessToken);
+  const setRole = useAuthStore((s) => s.setRole);
   const navigate = useNavigate();
 
   const handleGoogleLogin = () => {
@@ -25,8 +26,11 @@ export function LoginPage() {
         { email, password },
         { withCredentials: true },
       );
-      // Store token in memory only — never in localStorage
       setAccessToken(data.accessToken);
+      try {
+        const payload = JSON.parse(atob(data.accessToken.split('.')[1]));
+        setRole(payload.role);
+      } catch { /* ignore */ }
       navigate('/', { replace: true });
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: string } } };

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
+import { getAccessToken } from '../stores/authStore';
 import { JobDashboard } from './JobDashboard';
 import { ShopifySyncPanel } from './ShopifySyncPanel';
 
@@ -24,10 +25,322 @@ interface HealthStatus {
 
 // ── Users tab ────────────────────────────────────────────────────────────────
 
-function UsersTab() {
+interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'editor' | 'viewer';
+  status: 'active' | 'inactive';
+  created_at: string;
+}
+
+const ROLE_OPTIONS: User['role'][] = ['admin', 'editor', 'viewer'];
+
+const ROLE_COLORS: Record<User['role'], string> = {
+  admin: 'var(--blue)',
+  editor: '#5a8a00',
+  viewer: 'var(--ink-soft)',
+};
+
+function UserRow({
+  user,
+  isSelf,
+  onRoleChange,
+  onStatusToggle,
+  onDelete,
+}: {
+  user: User;
+  isSelf: boolean;
+  onRoleChange: (id: string, role: User['role']) => void;
+  onStatusToggle: (id: string, newStatus: 'active' | 'inactive') => void;
+  onDelete: (id: string) => void;
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   return (
-    <div style={{ fontSize: 13, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
-      User management API not yet implemented. Users are currently managed directly in the database.
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr auto auto auto',
+      gap: '8px 12px',
+      alignItems: 'center',
+      padding: '8px 12px',
+      borderBottom: '1px dashed var(--ink-soft)',
+      opacity: user.status === 'inactive' ? 0.5 : 1,
+      fontSize: 13,
+    }}>
+      {/* Name + email */}
+      <div>
+        <div style={{ fontFamily: "'Architects Daughter', sans-serif" }}>
+          {user.name}
+          {isSelf && <span style={{ fontSize: 10, color: 'var(--ink-soft)', marginLeft: 4 }}>(you)</span>}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+          {user.email}
+        </div>
+      </div>
+
+      {/* Role selector */}
+      <select
+        value={user.role}
+        disabled={isSelf}
+        onChange={(e) => onRoleChange(user.id, e.target.value as User['role'])}
+        style={{
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 12,
+          border: '1.5px solid var(--ink)',
+          background: '#fff',
+          padding: '2px 6px',
+          cursor: isSelf ? 'not-allowed' : 'pointer',
+          color: ROLE_COLORS[user.role],
+        }}
+      >
+        {ROLE_OPTIONS.map((r) => (
+          <option key={r} value={r}>{r}</option>
+        ))}
+      </select>
+
+      {/* Status toggle */}
+      <button
+        className="btn-sketch sm ghost"
+        disabled={isSelf}
+        onClick={() => onStatusToggle(user.id, user.status === 'active' ? 'inactive' : 'active')}
+        title={isSelf ? 'Cannot change your own status' : undefined}
+      >
+        {user.status === 'active' ? 'Deactivate' : 'Activate'}
+      </button>
+
+      {/* Delete */}
+      {confirmDelete ? (
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className="btn-sketch sm primary" onClick={() => onDelete(user.id)}>Confirm</button>
+          <button className="btn-sketch sm ghost" onClick={() => setConfirmDelete(false)}>Cancel</button>
+        </div>
+      ) : (
+        <button
+          className="btn-sketch sm ghost"
+          disabled={isSelf}
+          onClick={() => setConfirmDelete(true)}
+          style={{ color: 'var(--accent)' }}
+        >
+          Delete
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AddUserForm({ onSuccess }: { onSuccess: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ email: '', name: '', role: 'viewer' as User['role'], password: '' });
+  const [error, setError] = useState<string | null>(null);
+
+  const create = useMutation({
+    mutationFn: async () => {
+      await apiClient.post('/users', form);
+    },
+    onSuccess: () => {
+      setForm({ email: '', name: '', role: 'viewer', password: '' });
+      setError(null);
+      setOpen(false);
+      onSuccess();
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })
+        ?.response?.data?.error?.message ?? 'Failed to create user';
+      setError(msg);
+    },
+  });
+
+  if (!open) {
+    return (
+      <button className="btn-sketch sm" onClick={() => setOpen(true)} style={{ marginTop: 12 }}>
+        + Add user
+      </button>
+    );
+  }
+
+  return (
+    <div style={{
+      marginTop: 12,
+      border: '1.5px solid var(--ink)',
+      boxShadow: '3px 3px 0 var(--shadow)',
+      background: 'var(--paper-2)',
+    }}>
+      <div style={{
+        padding: '6px 12px',
+        borderBottom: '1.5px solid var(--ink)',
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 12,
+        color: 'var(--ink-soft)',
+      }}>
+        new user
+      </div>
+      <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {(['email', 'name', 'password'] as const).map((field) => (
+          <div key={field} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{
+              width: 72, fontSize: 12, color: 'var(--ink-soft)',
+              fontFamily: "'JetBrains Mono', monospace", flexShrink: 0,
+            }}>
+              {field}
+            </label>
+            <input
+              type={field === 'password' ? 'password' : 'text'}
+              value={form[field]}
+              onChange={(e) => setForm((f) => ({ ...f, [field]: e.target.value }))}
+              style={{
+                flex: 1,
+                border: '1.5px solid var(--ink)',
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 12,
+                padding: '3px 6px',
+                background: '#fff',
+              }}
+            />
+          </div>
+        ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{
+            width: 72, fontSize: 12, color: 'var(--ink-soft)',
+            fontFamily: "'JetBrains Mono', monospace", flexShrink: 0,
+          }}>
+            role
+          </label>
+          <select
+            value={form.role}
+            onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as User['role'] }))}
+            style={{
+              border: '1.5px solid var(--ink)',
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 12, padding: '3px 6px', background: '#fff',
+            }}
+          >
+            {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+
+        {error && (
+          <div style={{ fontSize: 12, color: 'var(--accent)', fontFamily: "'JetBrains Mono', monospace" }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+          <button
+            className="btn-sketch sm primary"
+            onClick={() => create.mutate()}
+            disabled={create.isPending}
+          >
+            {create.isPending ? 'Creating…' : 'Create'}
+          </button>
+          <button className="btn-sketch sm ghost" onClick={() => { setOpen(false); setError(null); }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UsersTab() {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['users'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ users: User[] }>('/users');
+      return data.users;
+    },
+  });
+
+  // Derive current user id from JWT stored in memory
+  const selfId = (() => {
+    try {
+      const token = getAccessToken();
+      if (!token) return null;
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.user_id as string;
+    } catch {
+      return null;
+    }
+  })();
+
+  const updateUser = useMutation({
+    mutationFn: async ({ id, ...patch }: { id: string; role?: User['role']; status?: 'active' | 'inactive' }) => {
+      await apiClient.patch(`/users/${id}`, patch);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
+  });
+
+  const deleteUser = useMutation({
+    mutationFn: async (id: string) => {
+      await apiClient.delete(`/users/${id}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
+  });
+
+  if (isLoading) {
+    return (
+      <div style={{ fontSize: 13, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+        Loading…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div style={{ fontSize: 13, color: 'var(--accent)', fontFamily: "'JetBrains Mono', monospace" }}>
+        Failed to load users.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{
+        border: '1.5px solid var(--ink)',
+        boxShadow: '3px 3px 0 var(--shadow)',
+      }}>
+        {/* Header */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr auto auto auto',
+          gap: '8px 12px',
+          padding: '6px 12px',
+          borderBottom: '1.5px solid var(--ink)',
+          background: 'var(--paper-2)',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 11,
+          color: 'var(--ink-soft)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+        }}>
+          <span>user</span>
+          <span>role</span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+
+        {/* Rows */}
+        {data?.length === 0 && (
+          <div style={{ padding: '12px', fontSize: 13, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+            No users found.
+          </div>
+        )}
+        {data?.map((user) => (
+          <UserRow
+            key={user.id}
+            user={user}
+            isSelf={user.id === selfId}
+            onRoleChange={(id, role) => updateUser.mutate({ id, role })}
+            onStatusToggle={(id, status) => updateUser.mutate({ id, status })}
+            onDelete={(id) => deleteUser.mutate(id)}
+          />
+        ))}
+      </div>
+
+      <AddUserForm onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users'] })} />
     </div>
   );
 }

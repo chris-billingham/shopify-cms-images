@@ -1,5 +1,5 @@
 import axios, { InternalAxiosRequestConfig } from 'axios';
-import { getAccessToken, setAccessToken } from '../stores/authStore';
+import { getAccessToken, setAccessToken, useAuthStore } from '../stores/authStore';
 
 export const apiClient = axios.create({
   baseURL: '/api',
@@ -75,6 +75,10 @@ apiClient.interceptors.response.use(
       const { data } = await refreshAxios.post('/auth/refresh', {});
       const newToken: string = data.accessToken;
       setAccessToken(newToken);
+      try {
+        const payload = JSON.parse(atob(newToken.split('.')[1]));
+        useAuthStore.getState().setRole(payload.role);
+      } catch { /* ignore */ }
       isRefreshing = false;
       notifySubscribers(newToken);
       originalRequest.headers['Authorization'] = `Bearer ${newToken}`;

@@ -1,4 +1,5 @@
-import { useState, Component, ReactNode } from 'react';
+import { useState, useEffect, Component, ReactNode } from 'react';
+import axios from 'axios';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginPage } from './pages/LoginPage';
@@ -50,6 +51,31 @@ const queryClient = new QueryClient({
   },
 });
 
+// Attempts a silent token refresh on mount so page reloads don't bounce to login.
+// Shows nothing while the attempt is in flight, then either restores the session
+// or renders children (which will redirect to /login if still unauthenticated).
+function AuthInitializer({ children }: { children: React.ReactNode }) {
+  const [ready, setReady] = useState(false);
+  const setAccessToken = useAuthStore((s) => s.setAccessToken);
+  const setRole = useAuthStore((s) => s.setRole);
+
+  useEffect(() => {
+    axios.post('/api/auth/refresh', {}, { withCredentials: true })
+      .then(({ data }) => {
+        setAccessToken(data.accessToken);
+        try {
+          const payload = JSON.parse(atob(data.accessToken.split('.')[1]));
+          setRole(payload.role);
+        } catch { /* ignore */ }
+      })
+      .catch(() => { /* no valid session — routes will redirect */ })
+      .finally(() => setReady(true));
+  }, [setAccessToken, setRole]);
+
+  if (!ready) return null;
+  return <>{children}</>;
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const accessToken = useAuthStore((s) => s.accessToken);
   if (!accessToken) return <Navigate to="/login" replace />;
@@ -70,6 +96,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <AuthInitializer>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route
@@ -115,6 +142,7 @@ function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </AuthInitializer>
       </BrowserRouter>
     </QueryClientProvider>
   );

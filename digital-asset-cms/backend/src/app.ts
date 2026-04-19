@@ -14,6 +14,7 @@ import jobsRoutes from './routes/jobs.js';
 import shopifyRoutes from './routes/shopify.js';
 import driveRoutes from './routes/drive.js';
 import healthRoutes from './routes/health.js';
+import usersRoutes from './routes/users.js';
 import { globalErrorHandler } from './middleware/error-handler.js';
 import { verifyAccessToken } from './services/auth.service.js';
 import { handleConnection } from './websocket/handler.js';
@@ -64,6 +65,7 @@ export function buildApp() {
   app.register(shopifyRoutes, { prefix: '/api/shopify' });
   app.register(driveRoutes, { prefix: '/api/drive' });
   app.register(healthRoutes, { prefix: '/api/health' });
+  app.register(usersRoutes, { prefix: '/api/users' });
 
   // ── WebSocket endpoint (/api/ws?token=<jwt>) ──────────────────────────────
   // Must be inside a register() context so @fastify/websocket's onRoute hook fires
