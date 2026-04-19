@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Product, ProductVariant } from '../types';
 import { apiClient } from '../api/client';
@@ -38,11 +38,42 @@ function ProductVariants({ productId }: { productId: string }) {
 export function ProductBrowser() {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [vendorFilter, setVendorFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   const { data: products, isLoading, isError } = useQuery({
     queryKey: ['products'],
     queryFn: fetchProducts,
   });
+
+  const vendors = useMemo(
+    () => [...new Set(products?.map((p) => p.vendor).filter(Boolean) as string[])].sort(),
+    [products],
+  );
+
+  const categories = useMemo(
+    () => [...new Set(products?.map((p) => p.category).filter(Boolean) as string[])].sort(),
+    [products],
+  );
+
+  const statuses = useMemo(
+    () => [...new Set(products?.map((p) => p.status).filter(Boolean) as string[])].sort(),
+    [products],
+  );
+
+  const filtered = useMemo(() => {
+    if (!products) return [];
+    const q = search.toLowerCase();
+    return products.filter((p) => {
+      if (q && !p.title.toLowerCase().includes(q)) return false;
+      if (vendorFilter && p.vendor !== vendorFilter) return false;
+      if (categoryFilter && p.category !== categoryFilter) return false;
+      if (statusFilter && p.status !== statusFilter) return false;
+      return true;
+    });
+  }, [products, search, vendorFilter, categoryFilter, statusFilter]);
 
   const syncMutation = useMutation({
     mutationFn: async () => apiClient.post('/shopify/sync-products', {}),
@@ -77,6 +108,50 @@ export function ProductBrowser() {
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-2 mb-4">
+        <input
+          type="search"
+          placeholder="Search products…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm flex-1 min-w-40"
+          aria-label="Search products"
+        />
+        {vendors.length > 0 && (
+          <select
+            value={vendorFilter}
+            onChange={(e) => setVendorFilter(e.target.value)}
+            className="border rounded px-3 py-1.5 text-sm bg-white"
+            aria-label="Filter by vendor"
+          >
+            <option value="">All vendors</option>
+            {vendors.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        )}
+        {categories.length > 0 && (
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="border rounded px-3 py-1.5 text-sm bg-white"
+            aria-label="Filter by category"
+          >
+            <option value="">All categories</option>
+            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
+        {statuses.length > 0 && (
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border rounded px-3 py-1.5 text-sm bg-white"
+            aria-label="Filter by status"
+          >
+            <option value="">All statuses</option>
+            {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
+      </div>
+
       {isLoading && <p role="status" className="text-gray-500 text-sm">Loading products…</p>}
       {isError && <p role="alert" className="text-red-500 text-sm">Failed to load products.</p>}
 
@@ -92,7 +167,12 @@ export function ProductBrowser() {
             </tr>
           </thead>
           <tbody>
-            {products.map((product) => (
+            {filtered.length === 0 && !isLoading && (
+              <tr>
+                <td colSpan={5} className="py-4 text-center text-gray-400 text-sm">No products match the current filters.</td>
+              </tr>
+            )}
+            {filtered.map((product) => (
               <React.Fragment key={product.id}>
                 <tr className="border-b hover:bg-gray-50">
                   <td className="py-2 pr-4 font-medium">{product.title}</td>
