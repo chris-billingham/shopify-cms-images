@@ -16,6 +16,7 @@ import {
   OptimisticLockError,
 } from '../services/asset.service.js';
 import { checkIdempotencyKey, storeIdempotencyResult } from '../utils/idempotency.js';
+import { db } from '../db/connection.js';
 import { submitBulkDownload, processBulkDownload, BulkDownloadError } from '../jobs/bulk-download.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, bulkRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 
@@ -92,6 +93,23 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const result = await checkDuplicate(q.fileName, parseInt(q.fileSize, 10), q.md5);
     return reply.send({ duplicate: result !== null, asset: result });
+  });
+
+  // ── GET /api/assets/:id/products — linked products for an asset ───────────
+  fastify.get('/:id/products', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const links = await db('asset_products as ap')
+      .join('products as p', 'ap.product_id', 'p.id')
+      .where('ap.asset_id', id)
+      .select(
+        'ap.id as link_id',
+        'p.id as product_id',
+        'p.title',
+        'p.shopify_id',
+        'ap.role',
+        'ap.sort_order',
+      );
+    return reply.send({ links });
   });
 
   // ── GET /api/assets/:id ────────────────────────────────────────────────────

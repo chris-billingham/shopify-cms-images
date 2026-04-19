@@ -82,6 +82,7 @@ export function createDriveService(options?: {
 }) {
   const limiter = options?.limiter ?? defaultLimiter;
   const teamDriveId = options?.teamDriveId ?? config.GOOGLE_TEAM_DRIVE_ID;
+  const uploadParentId = config.GOOGLE_DRIVE_FOLDER_ID ?? teamDriveId;
   const retryOpts = options?.retryOptions ?? {};
 
   let _drive: drive_v3.Drive | null = null;
@@ -109,7 +110,7 @@ export function createDriveService(options?: {
             requestBody: {
               name: metadata.name,
               mimeType: metadata.mimeType,
-              parents: [teamDriveId],
+              parents: [uploadParentId],
             },
             media: { mimeType: metadata.mimeType, body: stream },
             fields: 'id,webViewLink',

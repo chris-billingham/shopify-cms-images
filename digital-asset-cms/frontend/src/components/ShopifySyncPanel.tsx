@@ -5,9 +5,8 @@ import { apiClient } from '../api/client';
 import { useWebSocket } from '../hooks/useWebSocket';
 
 interface SyncStatus {
-  last_synced_at: string | null;
-  webhook_healthy: boolean;
-  active_job_id: string | null;
+  last_sync_at: string | null;
+  recent_jobs: Array<{ id: string; type: string; status: string; created_at: string }>;
 }
 
 export function ShopifySyncPanel() {
@@ -42,7 +41,7 @@ export function ShopifySyncPanel() {
   });
 
   const syncMutation = useMutation({
-    mutationFn: async () => apiClient.post('/shopify/sync', {}),
+    mutationFn: async () => apiClient.post('/shopify/sync-products', {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shopify', 'status'] });
     },
@@ -63,22 +62,24 @@ export function ShopifySyncPanel() {
 
       <div className="text-sm space-y-2">
         <div className="flex items-center gap-2">
-          <span className="text-gray-500">Webhook:</span>
-          {status?.webhook_healthy ? (
-            <span className="text-green-600 font-medium">Healthy</span>
-          ) : (
-            <span className="text-red-500 font-medium">Unreachable</span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
           <span className="text-gray-500">Last synced:</span>
           <span>
-            {status?.last_synced_at
-              ? new Date(status.last_synced_at).toLocaleString()
+            {status?.last_sync_at
+              ? new Date(status.last_sync_at).toLocaleString()
               : 'Never'}
           </span>
         </div>
+        {status?.recent_jobs && status.recent_jobs.length > 0 && (
+          <div>
+            <span className="text-gray-500">Last job:</span>{' '}
+            <span className={
+              status.recent_jobs[0].status === 'completed' ? 'text-green-600' :
+              status.recent_jobs[0].status === 'failed' ? 'text-red-500' : 'text-blue-600'
+            }>
+              {status.recent_jobs[0].status}
+            </span>
+          </div>
+        )}
       </div>
 
       {syncProgress !== null && (

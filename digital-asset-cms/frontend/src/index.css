@@ -1,0 +1,392 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #1f1d1a;
+  --ink-soft: #4a4640;
+  --paper: #f6f2ea;
+  --paper-2: #efe9dc;
+  --accent: #d8572a;
+  --accent-soft: #f0c8b4;
+  --blue: #3a66a6;
+  --blue-soft: #cbdaf0;
+  --green: #5a8a4a;
+  --green-soft: #d5e4c8;
+  --yellow-soft: #f5e6a8;
+  --shadow: rgba(30, 25, 20, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: 'Architects Daughter', sans-serif;
+  background-image:
+    radial-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
+    radial-gradient(rgba(0,0,0,0.03) 1px, transparent 1px);
+  background-size: 22px 22px, 46px 46px;
+  background-position: 0 0, 11px 11px;
+  min-height: 100vh;
+}
+
+/* ── Typography helpers ── */
+.font-display { font-family: 'Caveat', cursive; }
+.font-sketch  { font-family: 'Architects Daughter', sans-serif; }
+.font-mono    { font-family: 'JetBrains Mono', monospace; }
+
+/* ── Sketch button ── */
+.btn-sketch {
+  font-family: 'Architects Daughter', sans-serif;
+  font-size: 14px;
+  padding: 6px 14px;
+  border: 2px solid var(--ink);
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--ink);
+  transition: transform 0.06s, box-shadow 0.06s;
+  display: inline-block;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.btn-sketch:hover { background: var(--paper-2); }
+.btn-sketch:active { transform: translate(2px, 2px); box-shadow: none; }
+.btn-sketch.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-sketch.primary:hover { background: #c44d24; }
+.btn-sketch.shop { background: var(--green); color: #fff; border-color: var(--green); }
+.btn-sketch.shop:hover { background: #4a7a3a; }
+.btn-sketch.ghost { background: transparent; box-shadow: none; border-style: dashed; }
+.btn-sketch.ghost:hover { background: var(--paper-2); }
+.btn-sketch.sm { font-size: 12px; padding: 3px 8px; box-shadow: 1px 1px 0 var(--ink); }
+.btn-sketch.danger { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.btn-sketch.danger:hover { background: var(--accent); color: #fff; }
+.btn-sketch:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Facet items ── */
+.facet-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 4px;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 3px;
+  border: 1.5px solid transparent;
+  width: 100%;
+  background: transparent;
+  color: var(--ink);
+  font-family: 'Architects Daughter', sans-serif;
+  text-align: left;
+}
+.facet-item:hover { background: var(--paper-2); }
+.facet-item.active {
+  background: var(--blue-soft);
+  border-color: var(--blue);
+  transform: rotate(-0.3deg);
+}
+.facet-count {
+  color: var(--ink-soft);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+/* ── Status dot ── */
+.status-dot {
+  display: inline-block;
+  padding: 1px 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  border: 1px solid var(--ink);
+  background: var(--paper-2);
+}
+.status-dot.ok   { background: var(--green-soft); }
+.status-dot.warn { background: var(--yellow-soft); }
+.status-dot.err  { background: var(--accent-soft); }
+
+/* ── Tag chip ── */
+.chip {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1.5px solid var(--ink);
+  background: var(--blue-soft);
+  font-family: 'JetBrains Mono', monospace;
+  transform: rotate(-0.6deg);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chip:nth-child(3n+1) { transform: rotate(0.4deg);  background: var(--yellow-soft); }
+.chip:nth-child(3n+2) { transform: rotate(-0.5deg); background: var(--accent-soft); }
+.chip:nth-child(3n)   { transform: rotate(0.6deg);  background: var(--blue-soft); }
+.chip.add {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.chip.add:hover { background: var(--paper-2); }
+.chip .chip-x { cursor: pointer; color: var(--ink-soft); }
+.chip .chip-x:hover { color: var(--ink); }
+
+/* ── Section heading ── */
+.section-h {
+  font-family: 'Caveat', cursive;
+  font-size: 18px;
+  margin: 14px 0 4px;
+  border-bottom: 1.5px solid var(--ink);
+  padding-bottom: 2px;
+}
+
+/* ── KV row ── */
+.kv-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 2px 0;
+  border-bottom: 1px dashed var(--ink-soft);
+}
+.kv-row .kv-key { color: var(--ink-soft); }
+
+/* ── Sketch card / browser ── */
+.sketch-card {
+  background: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: 6px 6px 0 var(--shadow), 12px 12px 0 rgba(0,0,0,0.04);
+  overflow: hidden;
+}
+
+/* ── Asset thumbnail placeholder ── */
+.thumb-placeholder {
+  background:
+    repeating-linear-gradient(135deg, var(--paper-2) 0 8px, var(--paper) 8px 16px);
+}
+
+/* ── Progress bar ── */
+.progress-sketch {
+  height: 8px;
+  border: 1.5px solid var(--ink);
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+}
+.progress-sketch-bar {
+  display: block;
+  height: 100%;
+  background: repeating-linear-gradient(45deg, var(--accent) 0 6px, #e87a4f 6px 12px);
+  transition: width 0.2s;
+}
+
+/* ── Sidebar ── */
+.sketch-sidebar {
+  border-right: 2px solid var(--ink);
+  padding: 16px;
+  background: var(--paper);
+}
+.sketch-sidebar .side-h {
+  font-family: 'Caveat', cursive;
+  font-weight: 700;
+  font-size: 18px;
+  margin: 12px 0 6px;
+  border-bottom: 1.5px solid var(--ink);
+  padding-bottom: 2px;
+}
+.sketch-sidebar .side-h:first-child { margin-top: 0; }
+.sketch-sidebar .sub-h {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 6px 0 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Bulk bar ── */
+.bulk-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 8px 14px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.bulk-bar .btn-sketch {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 2px 2px 0 rgba(255,255,255,0.3);
+}
+
+/* ── Link row (product links) ── */
+.link-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  background: #fff;
+  border: 1.5px solid var(--ink);
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+.link-row .shopify-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--green-soft);
+  border: 1px solid var(--ink);
+  margin-left: 6px;
+}
+
+/* ── Dropzone ── */
+.dropzone {
+  border: 3px dashed var(--ink);
+  background: var(--paper-2);
+  padding: 60px 20px;
+  text-align: center;
+  font-family: 'Caveat', cursive;
+  font-size: 32px;
+  margin-bottom: 18px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.dropzone:hover { background: #e8e0d0; }
+.dropzone.drag-over { background: var(--blue-soft); border-color: var(--blue); }
+.dropzone::after {
+  content: "↓ drop here ↓";
+  position: absolute;
+  bottom: 10px; right: 16px;
+  font-family: 'Caveat', cursive;
+  font-size: 18px;
+  color: var(--accent);
+  transform: rotate(-4deg);
+}
+.dropzone-hint {
+  font-family: 'Architects Daughter', sans-serif;
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+}
+
+/* ── File item row ── */
+.file-item {
+  display: grid;
+  grid-template-columns: 1fr 120px 80px 80px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1.5px solid var(--ink);
+  background: #fff;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+/* ── Duplicate modal ── */
+.dup-modal {
+  border: 2px solid var(--ink);
+  background: var(--yellow-soft);
+  padding: 10px 14px;
+  margin-top: 8px;
+  transform: rotate(-0.3deg);
+}
+
+/* ── Muted label ── */
+.muted-label {
+  font-size: 11px;
+  color: var(--ink-soft);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+/* ── Sketch input ── */
+.sketch-input {
+  width: 100%;
+  padding: 6px 10px;
+  font-family: 'Architects Daughter', sans-serif;
+  font-size: 14px;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  outline: none;
+}
+.sketch-input:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+.sketch-input::placeholder { color: var(--ink-soft); }
+
+/* ── Search bar ── */
+.search-bar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid var(--ink);
+  padding: 6px 12px;
+  background: #fff;
+  font-size: 15px;
+}
+.search-bar input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-family: 'Architects Daughter', sans-serif;
+  font-size: 15px;
+  background: transparent;
+  color: var(--ink);
+}
+.search-bar input::placeholder { color: var(--ink-soft); }
+.search-icon {
+  width: 14px; height: 14px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Stat cards (admin) ── */
+.stat-card {
+  border: 1.5px solid var(--ink);
+  background: #fff;
+  padding: 10px 12px;
+}
+.stat-num {
+  font-family: 'Caveat', cursive;
+  font-weight: 700;
+  font-size: 28px;
+  color: var(--ink);
+}
+.stat-lbl { font-size: 12px; color: var(--ink-soft); }
+
+/* ── Admin tabs ── */
+.admin-tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--ink); margin-bottom: 18px; }
+.admin-tab {
+  padding: 6px 14px;
+  border: 1.5px solid transparent;
+  border-bottom: none;
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: -2px;
+  background: transparent;
+  font-family: 'Architects Daughter', sans-serif;
+  color: var(--ink);
+}
+.admin-tab.active {
+  border: 2px solid var(--ink);
+  background: var(--yellow-soft);
+  font-weight: 600;
+}
+.admin-tab:hover:not(.active) { background: var(--paper-2); }
+
+/* ── Wire table ── */
+.wire-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.wire-table th, .wire-table td {
+  text-align: left; padding: 8px 10px;
+  border-bottom: 1.5px dashed var(--ink-soft);
+}
+.wire-table th {
+  border-bottom: 2px solid var(--ink);
+  font-family: 'Caveat', cursive;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--ink);
+}
+.wire-table tr.expanded { background: var(--paper-2); }
+.wire-table tr:hover:not(.expanded) { background: rgba(0,0,0,0.02); }

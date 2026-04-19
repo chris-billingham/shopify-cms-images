@@ -1,4 +1,5 @@
 import { db } from '../src/db/connection.js';
+import { hashPassword } from '../src/services/auth.service.js';
 
 /**
  * Seeds the first admin user if the users table is empty and SEED_ADMIN_EMAIL is set.
@@ -28,10 +29,13 @@ export async function seedAdminIfNeeded(): Promise<{ seeded: boolean; email?: st
 }
 
 // CLI entry point
-// Usage: docker compose exec app node scripts/seed-admin.js --email admin@example.com
+// Usage: docker compose exec app node dist/scripts/seed-admin.js --email admin@example.com [--password secret]
 if (process.argv[1]?.endsWith('seed-admin.ts') || process.argv[1]?.endsWith('seed-admin.js')) {
   const emailArg = process.argv.indexOf('--email');
   const email = emailArg !== -1 ? process.argv[emailArg + 1] : process.env['SEED_ADMIN_EMAIL'];
+
+  const passwordArg = process.argv.indexOf('--password');
+  const password = passwordArg !== -1 ? process.argv[passwordArg + 1] : undefined;
 
   if (!email) {
     console.error('Error: provide --email <address> or set SEED_ADMIN_EMAIL');
@@ -49,7 +53,13 @@ if (process.argv[1]?.endsWith('seed-admin.ts') || process.argv[1]?.endsWith('see
 
   const result = await seedAdminIfNeeded();
   if (result.seeded) {
-    console.log(`Admin user created: ${result.email}`);
+    if (password) {
+      const hash = await hashPassword(password);
+      await db('users').where({ email }).update({ password_hash: hash });
+      console.log(`Admin user created: ${result.email} (password set)`);
+    } else {
+      console.log(`Admin user created: ${result.email} (no password — Google OAuth only)`);
+    }
   }
   await db.destroy();
 }

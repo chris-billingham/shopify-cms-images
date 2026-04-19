@@ -1,39 +1,43 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Product, LinkedAsset } from '../types';
+import { Product, ProductVariant } from '../types';
 import { apiClient } from '../api/client';
-import { LinkedAssetList } from './LinkedAssetList';
 
 async function fetchProducts(): Promise<Product[]> {
-  const { data } = await apiClient.get<Product[]>('/products');
-  return data;
+  const { data } = await apiClient.get<{ products: Product[] }>('/products');
+  return data.products ?? [];
 }
 
-async function fetchLinkedAssets(productId: string): Promise<LinkedAsset[]> {
-  const { data } = await apiClient.get<LinkedAsset[]>(`/products/${productId}/assets`);
-  return data;
+async function fetchVariants(productId: string): Promise<ProductVariant[]> {
+  const { data } = await apiClient.get<{ variants: ProductVariant[] }>(`/products/${productId}/variants`);
+  return data.variants ?? [];
 }
 
-function ProductAssets({ productId }: { productId: string }) {
+function ProductVariants({ productId }: { productId: string }) {
   const { data, isLoading } = useQuery({
-    queryKey: ['products', productId, 'assets'],
-    queryFn: () => fetchLinkedAssets(productId),
+    queryKey: ['products', productId, 'variants'],
+    queryFn: () => fetchVariants(productId),
   });
 
-  if (isLoading) return <p className="text-xs text-gray-400 p-2">Loading assets…</p>;
-  if (!data?.length) return <p className="text-xs text-gray-400 p-2">No linked assets.</p>;
+  if (isLoading) return <p className="text-xs text-gray-400 p-2">Loading variants…</p>;
+  if (!data?.length) return <p className="text-xs text-gray-400 p-2">No variants.</p>;
 
   return (
-    <div className="px-4 pb-3">
-      <LinkedAssetList productId={productId} assets={data} />
-    </div>
+    <ul className="space-y-0.5">
+      {data.map((v) => (
+        <li key={v.id} className="text-xs text-gray-600 flex gap-4">
+          <span className="font-mono">{v.sku || '—'}</span>
+          <span>{v.title}</span>
+          {v.price && <span className="text-gray-400">£{v.price}</span>}
+        </li>
+      ))}
+    </ul>
   );
 }
 
 export function ProductBrowser() {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data: products, isLoading, isError } = useQuery({
     queryKey: ['products'],
@@ -41,12 +45,12 @@ export function ProductBrowser() {
   });
 
   const syncMutation = useMutation({
-    mutationFn: async () => apiClient.post('/shopify/sync', {}),
+    mutationFn: async () => apiClient.post('/shopify/sync-products', {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
   });
 
   const importMutation = useMutation({
-    mutationFn: async () => apiClient.post('/shopify/import', {}),
+    mutationFn: async () => apiClient.post('/shopify/import-images', {}),
   });
 
   return (
@@ -90,16 +94,11 @@ export function ProductBrowser() {
           <tbody>
             {products.map((product) => (
               <React.Fragment key={product.id}>
-                <tr
-                  className="border-b hover:bg-gray-50 cursor-pointer"
-                  onClick={() =>
-                    setSelectedId((prev) => (prev === product.id ? null : product.id))
-                  }
-                >
+                <tr className="border-b hover:bg-gray-50">
                   <td className="py-2 pr-4 font-medium">{product.title}</td>
                   <td className="py-2 pr-4 text-gray-600">{product.vendor ?? '—'}</td>
                   <td className="py-2 pr-4 text-gray-600">{product.category ?? '—'}</td>
-                  <td className="py-2 pr-4 text-gray-600">{product.variants.length}</td>
+                  <td className="py-2 pr-4 text-gray-600">{product.variant_count}</td>
                   <td className="py-2">
                     <button
                       aria-label={`${expandedId === product.id ? 'Collapse' : 'Expand'} ${product.title}`}
@@ -120,26 +119,11 @@ export function ProductBrowser() {
                 {expandedId === product.id && (
                   <tr>
                     <td colSpan={5} className="pb-2 pl-4">
-                      <ul className="space-y-0.5">
-                        {product.variants.map((v) => (
-                          <li key={v.id} className="text-xs text-gray-600 flex gap-4">
-                            <span className="font-mono">{v.sku}</span>
-                            <span>{v.title}</span>
-                          </li>
-                        ))}
-                      </ul>
+                      <ProductVariants productId={product.id} />
                     </td>
                   </tr>
                 )}
 
-                {/* Linked assets (selected) */}
-                {selectedId === product.id && (
-                  <tr key={`${product.id}-assets`}>
-                    <td colSpan={5} className="pb-2">
-                      <ProductAssets productId={product.id} />
-                    </td>
-                  </tr>
-                )}
               </React.Fragment>
             ))}
           </tbody>

@@ -65,15 +65,15 @@ docker compose up -d
 
 This starts six services: Caddy (reverse proxy), app (API), worker (background jobs), frontend, PostgreSQL, and Redis. Database migrations run automatically on first boot.
 
-### 3. Set a password for the admin account
+### 3. Seed the admin account
 
-The admin user is created automatically on first boot using `SEED_ADMIN_EMAIL`. Set a password via the CLI:
+Create the admin user and set a password in one step:
 
 ```bash
-docker compose exec app node scripts/seed-admin.js --email admin@yourdomain.com
+docker compose exec app node dist/scripts/seed-admin.js --email admin@yourdomain.com --password yourpassword
 ```
 
-Or use Google OAuth — if `GOOGLE_OAUTH_CLIENT_ID` is configured, anyone who signs in with that email address via Google will be recognised as the admin.
+Omit `--password` if you want Google OAuth only. The script does nothing if users already exist.
 
 ### 4. Open the CMS
 
@@ -258,10 +258,10 @@ docker compose down -v        # stop and delete all data (destructive)
 ### Seed admin on an already-running stack
 
 ```bash
-docker compose exec app node scripts/seed-admin.js --email admin@yourdomain.com
+docker compose exec app node dist/scripts/seed-admin.js --email admin@yourdomain.com --password yourpassword
 ```
 
-This creates the admin only if no users exist. It is safe to run on an existing system — it will exit without changes if users are already present.
+Omit `--password` to create an account that can only sign in via Google OAuth. The script exits without changes if users already exist.
 
 ---
 
@@ -873,7 +873,7 @@ The admin seeding is a one-time operation. It runs automatically on first boot i
 To force a new admin seed (e.g. after wiping the database):
 
 ```bash
-docker compose exec app node scripts/seed-admin.js --email admin@yourdomain.com
+docker compose exec app node dist/scripts/seed-admin.js --email admin@yourdomain.com --password yourpassword
 ```
 
 ---
@@ -889,6 +889,8 @@ docker compose logs app    # Check for missing env vars or migration errors
 ```
 
 **Common causes:**
+- `APP_URL` or `FRONTEND_ORIGIN` missing the URL scheme — values must be full URLs including `http://` or `https://` (e.g. `http://localhost`, not just `localhost`). The app will fail to start with a `ZodError` if these are bare hostnames.
+- `NODE_ENV` set to `development` in a Docker deployment — the app expects `NODE_ENV=production` so it looks for compiled migrations in `dist/src/db/migrations`. With `development` it looks in `src/db/migrations` which does not exist in the image.
 - Missing or malformed `GOOGLE_SERVICE_ACCOUNT_KEY` — ensure it's valid JSON.
 - `DB_PASSWORD` mismatch between `.env` and an existing volume — either update the password or `docker compose down -v` to wipe volumes.
 - Port 80 or 443 already in use — check with `lsof -i :80`.

@@ -27,15 +27,20 @@ export interface ProductVariant {
   id: string;
   sku: string;
   title: string;
+  price?: string;
+  shopify_variant_id?: string;
 }
 
 export interface Product {
   id: string;
   title: string;
-  shopify_product_id?: string;
+  shopify_id?: string;
   vendor?: string;
   category?: string;
-  variants: ProductVariant[];
+  status?: string;
+  shopify_tags?: string[];
+  variant_count: number;
+  synced_at?: string;
 }
 
 export interface FacetValue {

@@ -1,12 +1,48 @@
+import { useState, Component, ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginPage } from './pages/LoginPage';
+import { Layout } from './components/Layout';
 import { AssetLibrary } from './components/AssetLibrary';
+import { AssetDetailPanel } from './components/AssetDetailPanel';
 import { UploadView } from './components/UploadView';
 import { ProductBrowser } from './components/ProductBrowser';
 import { AdminSettings } from './components/AdminSettings';
 import { useAuthStore } from './stores/authStore';
 import { usePermissions } from './hooks/usePermissions';
+import { Asset } from './types';
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24 }}>
+          <div style={{
+            border: '1.5px solid var(--accent)',
+            background: 'var(--accent-soft)',
+            padding: '12px 16px',
+            fontSize: 13,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            <strong>Something went wrong.</strong>
+            <pre style={{ marginTop: 8, fontSize: 11, whiteSpace: 'pre-wrap' }}>
+              {(this.state.error as Error).message}
+            </pre>
+            <button
+              onClick={() => this.setState({ error: null })}
+              style={{ marginTop: 8, cursor: 'pointer', fontSize: 12, textDecoration: 'underline', background: 'none', border: 'none' }}
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -16,10 +52,8 @@ const queryClient = new QueryClient({
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const accessToken = useAuthStore((s) => s.accessToken);
-  if (!accessToken) {
-    return <Navigate to="/login" replace />;
-  }
-  return <>{children}</>;
+  if (!accessToken) return <Navigate to="/login" replace />;
+  return <Layout><ErrorBoundary>{children}</ErrorBoundary></Layout>;
 }
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
@@ -27,10 +61,12 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   const { canViewAdmin } = usePermissions();
   if (!accessToken) return <Navigate to="/login" replace />;
   if (!canViewAdmin) return <Navigate to="/" replace />;
-  return <>{children}</>;
+  return <Layout><ErrorBoundary>{children}</ErrorBoundary></Layout>;
 }
 
 function App() {
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
@@ -41,8 +77,11 @@ function App() {
             element={
               <ProtectedRoute>
                 <div className="p-6">
-                  <AssetLibrary />
+                  <AssetLibrary onAssetClick={setSelectedAsset} />
                 </div>
+                {selectedAsset && (
+                  <AssetDetailPanel asset={selectedAsset} onClose={() => setSelectedAsset(null)} />
+                )}
               </ProtectedRoute>
             }
           />

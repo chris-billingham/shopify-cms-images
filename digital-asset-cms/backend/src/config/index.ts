@@ -7,6 +7,7 @@ const configSchema = z.object({
   // Google Drive (REQUIRED)
   GOOGLE_SERVICE_ACCOUNT_KEY: z.string().min(1, 'GOOGLE_SERVICE_ACCOUNT_KEY is required'),
   GOOGLE_TEAM_DRIVE_ID: z.string().min(1, 'GOOGLE_TEAM_DRIVE_ID is required'),
+  GOOGLE_DRIVE_FOLDER_ID: z.string().optional(),
 
   // Shopify (REQUIRED)
   SHOPIFY_STORE_DOMAIN: z.string().min(1, 'SHOPIFY_STORE_DOMAIN is required'),

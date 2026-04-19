@@ -1,6 +1,12 @@
 import { useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZES, getAssetType } from '../types';
+
+interface SearchProduct {
+  id: string;
+  title: string;
+  shopify_id: string | null;
+}
 import { apiClient } from '../api/client';
 
 interface FileState {
@@ -12,8 +18,8 @@ interface FileState {
 }
 
 interface DuplicateCheckResponse {
-  isDuplicate: boolean;
-  existingAsset?: { id: string; file_name: string };
+  duplicate: boolean;
+  asset?: { id: string; file_name: string };
 }
 
 function validateFile(file: File): string | null {
@@ -31,17 +37,51 @@ function validateFile(file: File): string | null {
   return null;
 }
 
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+function StatusDot({ status, progress }: { status: FileState['status']; progress: number }) {
+  if (status === 'uploading') {
+    return <span className="status-dot ok">{progress}%</span>;
+  }
+  if (status === 'done') return <span className="status-dot ok">done ✓</span>;
+  if (status === 'error') return <span className="status-dot err">rejected</span>;
+  if (status === 'duplicate') return <span className="status-dot warn">duplicate detected</span>;
+  if (status === 'checking') return <span className="status-dot">checking…</span>;
+  return <span className="status-dot">queued</span>;
+}
+
 export function UploadView() {
   const [files, setFiles] = useState<FileState[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
+  // Batch tag sidebar state
+  const [batchProductSearch, setBatchProductSearch] = useState('');
+  const [batchRole, setBatchRole] = useState('gallery');
+  const [batchTags, setBatchTags] = useState<Array<{ key: string; value: string }>>([]);
+  const [newTagKey, setNewTagKey] = useState('');
+  const [newTagValue, setNewTagValue] = useState('');
+
+  const { data: productSearchData } = useQuery({
+    queryKey: ['products-search-upload', batchProductSearch],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ products: SearchProduct[] }>('/products', {
+        params: { q: batchProductSearch, limit: 10 },
+      });
+      return data.products;
+    },
+    enabled: batchProductSearch.length > 1,
+  });
+
   const checkDuplicate = useMutation({
     mutationFn: async (file: File) => {
-      const { data } = await apiClient.post<DuplicateCheckResponse>(
+      const { data } = await apiClient.get<DuplicateCheckResponse>(
         '/assets/check-duplicate',
-        { file_name: file.name, file_size: file.size },
+        { params: { fileName: file.name, fileSize: file.size } },
       );
       return data;
     },
@@ -60,31 +100,26 @@ export function UploadView() {
 
     setFiles((prev) => [...prev, ...newStates]);
 
-    // Run duplicate checks for valid files
     for (const state of newStates) {
       if (state.status === 'error') continue;
 
       setFiles((prev) =>
-        prev.map((f) =>
-          f.file === state.file ? { ...f, status: 'checking' } : f,
-        ),
+        prev.map((f) => f.file === state.file ? { ...f, status: 'checking' } : f),
       );
 
       try {
         const result = await checkDuplicate.mutateAsync(state.file);
-        if (result.isDuplicate) {
+        if (result.duplicate) {
           setFiles((prev) =>
             prev.map((f) =>
               f.file === state.file
-                ? { ...f, status: 'duplicate', duplicateAsset: result.existingAsset }
+                ? { ...f, status: 'duplicate', duplicateAsset: result.asset }
                 : f,
             ),
           );
         } else {
           setFiles((prev) =>
-            prev.map((f) =>
-              f.file === state.file ? { ...f, status: 'uploading' } : f,
-            ),
+            prev.map((f) => f.file === state.file ? { ...f, status: 'uploading' } : f),
           );
           await uploadFile(state.file);
         }
@@ -102,20 +137,26 @@ export function UploadView() {
     const formData = new FormData();
     formData.append('file', file);
 
+    // Apply batch tags
+    if (batchTags.length > 0) {
+      const tagObj: Record<string, string> = {};
+      batchTags.forEach((t) => { tagObj[t.key] = t.value; });
+      formData.append('tags', JSON.stringify(tagObj));
+    }
+    if (batchRole) formData.append('role', batchRole);
+
     try {
       await apiClient.post('/assets', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { 'Content-Type': undefined },
         onUploadProgress: (e) => {
           const pct = e.total ? Math.round((e.loaded / e.total) * 100) : 0;
           setFiles((prev) =>
-            prev.map((f) =>
-              f.file === file ? { ...f, progress: pct } : f,
-            ),
+            prev.map((f) => f.file === file ? { ...f, progress: pct } : f),
           );
         },
       });
       setFiles((prev) =>
-        prev.map((f) => (f.file === file ? { ...f, status: 'done', progress: 100 } : f)),
+        prev.map((f) => f.file === file ? { ...f, status: 'done', progress: 100 } : f),
       );
       queryClient.invalidateQueries({ queryKey: ['assets'] });
     } catch {
@@ -131,16 +172,12 @@ export function UploadView() {
     e.preventDefault();
     setIsDragging(false);
     const dropped = Array.from(e.dataTransfer.files);
-    if (dropped.length > 0) {
-      processFiles(dropped);
-    }
+    if (dropped.length > 0) processFiles(dropped);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files ?? []);
-    if (selected.length > 0) {
-      processFiles(selected);
-    }
+    if (selected.length > 0) processFiles(selected);
   };
 
   const handleDismissDuplicate = (file: File) => {
@@ -149,104 +186,238 @@ export function UploadView() {
 
   const handleProceedDuplicate = async (file: File) => {
     setFiles((prev) =>
-      prev.map((f) => (f.file === file ? { ...f, status: 'uploading' } : f)),
+      prev.map((f) => f.file === file ? { ...f, status: 'uploading' } : f),
     );
     await uploadFile(file);
   };
 
-  return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <h2 className="text-xl font-semibold mb-4">Upload Assets</h2>
+  const addBatchTag = () => {
+    if (!newTagKey.trim() || !newTagValue.trim()) return;
+    setBatchTags((prev) => [...prev, { key: newTagKey.trim(), value: newTagValue.trim() }]);
+    setNewTagKey('');
+    setNewTagValue('');
+  };
 
-      {/* Drop zone */}
-      <div
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-        role="region"
-        aria-label="Drop zone"
-        className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
-          isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
-        }`}
-      >
-        <p className="text-gray-500">Drag &amp; drop files here, or click to select</p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={handleFileChange}
-        />
+  const removeBatchTag = (idx: number) => {
+    setBatchTags((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const queuedCount = files.filter((f) => f.status !== 'done' && f.status !== 'error').length;
+  const dupCount = files.filter((f) => f.status === 'duplicate').length;
+
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1fr 320px',
+      minHeight: 'calc(100vh - 50px)',
+    }}>
+      {/* Main upload area */}
+      <div style={{ padding: 18, position: 'relative' }}>
+        {/* Dropzone */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`dropzone ${isDragging ? 'drag-over' : ''}`}
+          role="region"
+          aria-label="Drop zone"
+        >
+          drop files here
+          <div className="dropzone-hint">
+            or click to browse · images ≤ 100MB · video ≤ 1GB · pdf ≤ 50MB
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
+          />
+        </div>
+
+        {/* Summary */}
+        {files.length > 0 && (
+          <div className="muted-label" style={{ marginBottom: 6 }}>
+            {queuedCount > 0 && `${queuedCount} file${queuedCount > 1 ? 's' : ''} queued`}
+            {dupCount > 0 && ` · ${dupCount} duplicate${dupCount > 1 ? 's' : ''} detected`}
+          </div>
+        )}
+
+        {/* File list */}
+        {files.map((fileState, idx) => (
+          <div key={idx}>
+            {fileState.status === 'duplicate' ? (
+              // Duplicate — full-width inline
+              <div style={{
+                border: '1.5px solid var(--ink)',
+                background: '#fff',
+                padding: '8px 12px',
+                marginBottom: 6,
+                fontSize: 13,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                  <div>
+                    <strong>{fileState.file.name}</strong>
+                    <div className="muted-label">{formatSize(fileState.file.size)} · {fileState.file.type}</div>
+                  </div>
+                  <StatusDot status={fileState.status} progress={fileState.progress} />
+                </div>
+                {fileState.duplicateAsset && (
+                  <div className="dup-modal">
+                    <strong>Looks like this file is already in the library.</strong><br />
+                    Match: <em>{fileState.duplicateAsset.file_name}</em>
+                    <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+                      <button className="btn-sketch sm" onClick={() => handleDismissDuplicate(fileState.file)}>
+                        skip
+                      </button>
+                      <button className="btn-sketch sm primary" onClick={() => handleProceedDuplicate(fileState.file)}>
+                        replace existing (new version)
+                      </button>
+                      <button className="btn-sketch sm ghost" onClick={() => handleProceedDuplicate(fileState.file)}>
+                        upload anyway as separate asset
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="file-item">
+                <div>
+                  <strong>{fileState.file.name}</strong>
+                  <div className="muted-label">{formatSize(fileState.file.size)} · {fileState.file.type}</div>
+                  {fileState.error && (
+                    <div style={{ color: 'var(--accent)', fontSize: 11, marginTop: 2 }} role="alert">
+                      {fileState.error}
+                    </div>
+                  )}
+                </div>
+
+                {fileState.status === 'uploading' ? (
+                  <div className="progress-sketch">
+                    <span className="progress-sketch-bar" style={{ width: `${fileState.progress}%` }} />
+                  </div>
+                ) : <div />}
+
+                <StatusDot status={fileState.status} progress={fileState.progress} />
+
+                {fileState.status === 'uploading' ? (
+                  <span className="status-dot ok">uploading</span>
+                ) : fileState.status === 'error' && !fileState.duplicateAsset ? (
+                  <span className="muted-label">unsupported type</span>
+                ) : (
+                  <div />
+                )}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
-      {/* File list */}
-      {files.length > 0 && (
-        <ul className="mt-4 space-y-3">
-          {files.map((fileState, idx) => (
-            <li key={idx} className="border rounded p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium truncate">{fileState.file.name}</span>
-                <span
-                  className={`text-xs ml-2 ${
-                    fileState.status === 'error' ? 'text-red-500' :
-                    fileState.status === 'done' ? 'text-green-500' :
-                    'text-gray-500'
-                  }`}
+      {/* Right sidebar: apply to all */}
+      <aside className="sketch-sidebar" style={{
+        borderLeft: '2px solid var(--ink)',
+        borderRight: 'none',
+        padding: 16,
+      }}>
+        <div className="side-h">Apply to all (optional)</div>
+
+        <div className="sub-h">product (optional)</div>
+        <input
+          placeholder="search product…"
+          value={batchProductSearch}
+          onChange={(e) => setBatchProductSearch(e.target.value)}
+          className="sketch-input"
+          style={{ marginBottom: 4 }}
+        />
+        {batchProductSearch.length > 1 && productSearchData && productSearchData.length > 0 && (
+          <ul style={{
+            border: '1.5px solid var(--ink)',
+            background: '#fff',
+            listStyle: 'none',
+            padding: 0,
+            margin: '0 0 8px',
+            maxHeight: 120,
+            overflowY: 'auto',
+          }}>
+            {productSearchData.map((p) => (
+              <li key={p.id}>
+                <button
+                  onClick={() => setBatchProductSearch(p.title)}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '5px 8px',
+                    fontSize: 13,
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: '1px dashed var(--ink-soft)',
+                    cursor: 'pointer',
+                    fontFamily: "'Architects Daughter', sans-serif",
+                    color: 'var(--ink)',
+                  }}
                 >
-                  {fileState.status}
-                </span>
-              </div>
+                  {p.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
 
-              {fileState.error && (
-                <p role="alert" className="mt-1 text-xs text-red-500">
-                  {fileState.error}
-                </p>
-              )}
+        <div className="sub-h">role</div>
+        <select
+          value={batchRole}
+          onChange={(e) => setBatchRole(e.target.value)}
+          className="sketch-input"
+          style={{ marginBottom: 8 }}
+        >
+          <option value="gallery">gallery</option>
+          <option value="hero">hero</option>
+          <option value="swatch">swatch</option>
+        </select>
 
-              {fileState.status === 'uploading' && (
-                <div className="mt-2">
-                  <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500 rounded-full transition-all"
-                      style={{ width: `${fileState.progress}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Duplicate modal */}
-              {fileState.status === 'duplicate' && fileState.duplicateAsset && (
-                <div role="dialog" aria-label="Duplicate detected" className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm">
-                  <p className="text-yellow-800">
-                    A duplicate already exists: <strong>{fileState.duplicateAsset.file_name}</strong>
-                  </p>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => handleDismissDuplicate(fileState.file)}
-                      className="px-2 py-1 bg-gray-100 rounded text-xs"
-                    >
-                      Skip
-                    </button>
-                    <button
-                      onClick={() => handleProceedDuplicate(fileState.file)}
-                      className="px-2 py-1 bg-blue-600 text-white rounded text-xs"
-                    >
-                      Replace
-                    </button>
-                    <button
-                      onClick={() => handleProceedDuplicate(fileState.file)}
-                      className="px-2 py-1 bg-gray-600 text-white rounded text-xs"
-                    >
-                      Upload Anyway
-                    </button>
-                  </div>
-                </div>
-              )}
-            </li>
+        <div className="sub-h">tags</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {batchTags.map((t, i) => (
+            <span key={i} className="chip">
+              {t.key}: {t.value}
+              <span className="chip-x" onClick={() => removeBatchTag(i)}>×</span>
+            </span>
           ))}
-        </ul>
-      )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+          <input
+            placeholder="key"
+            value={newTagKey}
+            onChange={(e) => setNewTagKey(e.target.value)}
+            className="sketch-input"
+            style={{ flex: 1 }}
+          />
+          <input
+            placeholder="value"
+            value={newTagValue}
+            onChange={(e) => setNewTagValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addBatchTag()}
+            className="sketch-input"
+            style={{ flex: 1 }}
+          />
+        </div>
+        <button className="btn-sketch sm ghost" onClick={addBatchTag} style={{ marginBottom: 16 }}>
+          ＋ add tag
+        </button>
+
+        <div style={{
+          border: '1.5px dashed var(--accent)',
+          background: 'rgba(216,87,42,0.06)',
+          padding: '6px 10px',
+          fontSize: 12,
+          fontFamily: "'Architects Daughter', sans-serif",
+          color: 'var(--accent)',
+        }}>
+          ✱ These are applied at upload — you can still edit each asset afterwards.
+        </div>
+      </aside>
     </div>
   );
 }

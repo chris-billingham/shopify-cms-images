@@ -6,6 +6,13 @@ interface FacetSidebarProps {
   onFilterChange: (filters: ActiveFilters) => void;
 }
 
+const typeIcons: Record<string, string> = {
+  image: '▣',
+  video: '▶',
+  text: '▤',
+  document: '▦',
+};
+
 export function FacetSidebar({ facets, activeFilters, onFilterChange }: FacetSidebarProps) {
   const handleTypeClick = (value: string) => {
     if (activeFilters.type === value) {
@@ -13,6 +20,15 @@ export function FacetSidebar({ facets, activeFilters, onFilterChange }: FacetSid
       onFilterChange(rest);
     } else {
       onFilterChange({ ...activeFilters, type: value });
+    }
+  };
+
+  const handleStatusClick = (value: string) => {
+    if (activeFilters.status === value) {
+      const { status: _status, ...rest } = activeFilters;
+      onFilterChange(rest);
+    } else {
+      onFilterChange({ ...activeFilters, status: value });
     }
   };
 
@@ -26,58 +42,80 @@ export function FacetSidebar({ facets, activeFilters, onFilterChange }: FacetSid
     }
   };
 
+  const hasFilters =
+    activeFilters.type ||
+    activeFilters.status ||
+    Object.keys(activeFilters.tags ?? {}).length > 0;
+
   return (
-    <aside className="w-64 flex-shrink-0 space-y-4">
+    <aside className="sketch-sidebar" style={{ minHeight: 640, width: 240, flexShrink: 0 }}>
+      {/* Type facets */}
       {facets.asset_type && facets.asset_type.length > 0 && (
-        <div>
-          <h3 className="font-semibold text-sm text-gray-700 uppercase mb-2">Type</h3>
-          <ul className="space-y-1">
-            {facets.asset_type.map(({ value, count }) => (
-              <li key={value}>
-                <button
-                  onClick={() => handleTypeClick(value)}
-                  className={`flex items-center justify-between w-full px-2 py-1 rounded text-sm ${
-                    activeFilters.type === value
-                      ? 'bg-blue-100 text-blue-800 font-medium'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                  aria-pressed={activeFilters.type === value}
-                >
-                  <span>{value}</span>
-                  <span className="ml-2 text-gray-500">{count}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <>
+          <div className="side-h">Type</div>
+          {facets.asset_type.map(({ value, count }) => (
+            <button
+              key={value}
+              onClick={() => handleTypeClick(value)}
+              className={`facet-item ${activeFilters.type === value ? 'active' : ''}`}
+              aria-pressed={activeFilters.type === value}
+            >
+              <span>{typeIcons[value] ?? '▪'} {value}</span>
+              <span className="facet-count">{count.toLocaleString()}</span>
+            </button>
+          ))}
+        </>
       )}
 
+      {/* Status facets */}
+      {facets.status && facets.status.length > 0 && (
+        <>
+          <div className="side-h">Status</div>
+          {facets.status.map(({ value, count }) => (
+            <button
+              key={value}
+              onClick={() => handleStatusClick(value)}
+              className={`facet-item ${activeFilters.status === value ? 'active' : ''}`}
+              aria-pressed={activeFilters.status === value}
+            >
+              <span>{value}</span>
+              <span className="facet-count">{count.toLocaleString()}</span>
+            </button>
+          ))}
+        </>
+      )}
+
+      {/* Tag facets */}
       {facets.tags && Object.keys(facets.tags).length > 0 && (
-        <div>
-          <h3 className="font-semibold text-sm text-gray-700 uppercase mb-2">Tags</h3>
+        <>
+          <div className="side-h">Tags</div>
           {Object.entries(facets.tags).map(([key, values]) => (
-            <div key={key} className="mb-3">
-              <h4 className="text-xs font-medium text-gray-600 mb-1 capitalize">{key}</h4>
-              <ul className="space-y-1">
-                {values.map(({ value, count }) => (
-                  <li key={value}>
-                    <button
-                      onClick={() => handleTagClick(key, value)}
-                      className={`flex items-center justify-between w-full px-2 py-1 rounded text-sm ${
-                        activeFilters.tags?.[key] === value
-                          ? 'bg-blue-100 text-blue-800 font-medium'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      }`}
-                      aria-pressed={activeFilters.tags?.[key] === value}
-                    >
-                      <span>{value}</span>
-                      <span className="ml-2 text-gray-500">{count}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            <div key={key}>
+              <div className="sub-h">{key}</div>
+              {values.map(({ value, count }) => (
+                <button
+                  key={value}
+                  onClick={() => handleTagClick(key, value)}
+                  className={`facet-item ${activeFilters.tags?.[key] === value ? 'active' : ''}`}
+                  aria-pressed={activeFilters.tags?.[key] === value}
+                >
+                  <span>{value}</span>
+                  <span className="facet-count">{count.toLocaleString()}</span>
+                </button>
+              ))}
             </div>
           ))}
+        </>
+      )}
+
+      {hasFilters && (
+        <div style={{ marginTop: 24 }}>
+          <button
+            className="btn-sketch sm ghost"
+            onClick={() => onFilterChange({})}
+          >
+            ＋ clear all filters
+          </button>
         </div>
       )}
     </aside>

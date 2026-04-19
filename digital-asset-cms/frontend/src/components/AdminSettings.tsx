@@ -1,132 +1,33 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { User, UserRole } from '../types';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { JobDashboard } from './JobDashboard';
 import { ShopifySyncPanel } from './ShopifySyncPanel';
 
 type Tab = 'users' | 'drive' | 'shopify' | 'tags' | 'jobs' | 'health';
 
-interface TagKey {
-  key: string;
-  suggested_values: string[];
-}
-
-interface DriveStatus {
-  connected: boolean;
-  quota_used: number;
-  quota_limit: number;
-  folder_id: string | null;
+interface DependencyStatus {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  message?: string;
+  quota_warning?: boolean;
 }
 
 interface HealthStatus {
-  db: 'ok' | 'error';
-  redis: 'ok' | 'error';
-  drive: 'ok' | 'error';
-  shopify: 'ok' | 'error';
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  dependencies: {
+    postgres: DependencyStatus;
+    redis: DependencyStatus;
+    google_drive: DependencyStatus;
+    shopify: DependencyStatus;
+  };
 }
 
 // ── Users tab ────────────────────────────────────────────────────────────────
 
 function UsersTab() {
-  const queryClient = useQueryClient();
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<UserRole>('editor');
-
-  const { data: users } = useQuery({
-    queryKey: ['admin', 'users'],
-    queryFn: async () => {
-      const { data } = await apiClient.get<User[]>('/admin/users');
-      return data;
-    },
-  });
-
-  const inviteMutation = useMutation({
-    mutationFn: async () =>
-      apiClient.post('/admin/users/invite', { email: inviteEmail, role: inviteRole }),
-    onSuccess: () => {
-      setInviteEmail('');
-      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-    },
-  });
-
-  const deactivateMutation = useMutation({
-    mutationFn: async (userId: string) =>
-      apiClient.patch(`/admin/users/${userId}`, { status: 'deactivated' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-    },
-  });
-
   return (
-    <div className="space-y-4">
-      <div className="flex gap-2">
-        <input
-          type="email"
-          placeholder="Email address"
-          value={inviteEmail}
-          onChange={(e) => setInviteEmail(e.target.value)}
-          className="border rounded px-2 py-1 text-sm flex-1"
-          aria-label="Invite email"
-        />
-        <select
-          value={inviteRole}
-          onChange={(e) => setInviteRole(e.target.value as UserRole)}
-          className="border rounded px-2 py-1 text-sm"
-          aria-label="Invite role"
-        >
-          <option value="viewer">Viewer</option>
-          <option value="editor">Editor</option>
-          <option value="admin">Admin</option>
-        </select>
-        <button
-          onClick={() => inviteMutation.mutate()}
-          disabled={!inviteEmail || inviteMutation.isPending}
-          className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          Invite
-        </button>
-      </div>
-
-      <table className="w-full text-sm border-collapse">
-        <thead>
-          <tr className="border-b text-left text-gray-500">
-            <th className="pb-2 pr-4">Email</th>
-            <th className="pb-2 pr-4">Role</th>
-            <th className="pb-2 pr-4">Status</th>
-            <th className="pb-2" />
-          </tr>
-        </thead>
-        <tbody>
-          {(users ?? []).map((user) => (
-            <tr key={user.id} className="border-b">
-              <td className="py-1.5 pr-4">{user.email}</td>
-              <td className="py-1.5 pr-4 capitalize">{user.role}</td>
-              <td className="py-1.5 pr-4">
-                <span
-                  className={
-                    user.status === 'active'
-                      ? 'text-green-600'
-                      : 'text-gray-400'
-                  }
-                >
-                  {user.status}
-                </span>
-              </td>
-              <td className="py-1.5">
-                {user.status === 'active' && (
-                  <button
-                    onClick={() => deactivateMutation.mutate(user.id)}
-                    className="text-xs text-red-500 hover:text-red-700"
-                  >
-                    Deactivate
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div style={{ fontSize: 13, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+      User management API not yet implemented. Users are currently managed directly in the database.
     </div>
   );
 }
@@ -134,39 +35,34 @@ function UsersTab() {
 // ── Drive tab ─────────────────────────────────────────────────────────────────
 
 function DriveTab() {
-  const { data } = useQuery({
-    queryKey: ['admin', 'drive'],
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['health'],
     queryFn: async () => {
-      const { data } = await apiClient.get<DriveStatus>('/admin/drive/status');
+      const { data } = await apiClient.get<HealthStatus>('/health');
       return data;
     },
   });
 
-  if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (isLoading) return <p className="text-sm text-gray-400">Checking…</p>;
+  if (isError) return <p className="text-sm text-red-500">Could not reach health endpoint.</p>;
 
-  const quotaPct = data.quota_limit
-    ? Math.round((data.quota_used / data.quota_limit) * 100)
-    : 0;
+  const drive = data?.dependencies.google_drive;
+  const connected = drive?.status === 'healthy';
 
   return (
     <div className="space-y-3 text-sm">
       <div className="flex items-center gap-2">
         <span className="text-gray-500">Status:</span>
-        <span className={data.connected ? 'text-green-600' : 'text-red-500'}>
-          {data.connected ? 'Connected' : 'Disconnected'}
+        <span className={connected ? 'text-green-600' : drive?.status === 'degraded' ? 'text-yellow-600' : 'text-red-500'}>
+          {connected ? 'Connected' : drive?.status === 'degraded' ? 'Degraded' : 'Disconnected'}
         </span>
       </div>
-      <div>
-        <div className="flex justify-between text-gray-500 mb-1">
-          <span>API quota used</span>
-          <span>{quotaPct}%</span>
-        </div>
-        <progress value={quotaPct} max={100} aria-label="Drive quota" className="w-full h-1.5" />
-      </div>
-      <div>
-        <span className="text-gray-500">Watched folder: </span>
-        <span className="font-mono text-xs">{data.folder_id ?? 'Not configured'}</span>
-      </div>
+      {drive?.message && (
+        <div className="text-xs text-gray-400">{drive.message}</div>
+      )}
+      {drive?.quota_warning && (
+        <div className="text-xs text-yellow-600">Warning: Drive quota &gt; 90%</div>
+      )}
     </div>
   );
 }
@@ -174,56 +70,29 @@ function DriveTab() {
 // ── Tags tab ──────────────────────────────────────────────────────────────────
 
 function TagsTab() {
-  const queryClient = useQueryClient();
-  const [newKey, setNewKey] = useState('');
-
-  const { data: tagKeys } = useQuery({
-    queryKey: ['admin', 'tag-keys'],
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['tags', 'keys'],
     queryFn: async () => {
-      const { data } = await apiClient.get<TagKey[]>('/admin/tag-keys');
-      return data;
+      const { data } = await apiClient.get<{ keys: string[] }>('/tags/keys');
+      return data.keys;
     },
   });
 
-  const addKeyMutation = useMutation({
-    mutationFn: async () =>
-      apiClient.post('/admin/tag-keys', { key: newKey }),
-    onSuccess: () => {
-      setNewKey('');
-      queryClient.invalidateQueries({ queryKey: ['admin', 'tag-keys'] });
-    },
-  });
+  if (isLoading) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (isError) return <p className="text-sm text-red-500">Failed to load tag keys.</p>;
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        <input
-          type="text"
-          placeholder="New tag key"
-          value={newKey}
-          onChange={(e) => setNewKey(e.target.value)}
-          className="border rounded px-2 py-1 text-sm flex-1"
-          aria-label="New tag key"
-        />
-        <button
-          onClick={() => addKeyMutation.mutate()}
-          disabled={!newKey || addKeyMutation.isPending}
-          className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          Add
-        </button>
-      </div>
+      <p className="text-xs text-gray-400">Tag keys are derived from asset metadata. Add tags to assets to see keys here.</p>
       <ul className="space-y-1">
-        {(tagKeys ?? []).map((tk) => (
-          <li key={tk.key} className="text-sm flex items-center gap-2">
-            <span className="font-medium">{tk.key}</span>
-            {tk.suggested_values.length > 0 && (
-              <span className="text-gray-400 text-xs">
-                ({tk.suggested_values.join(', ')})
-              </span>
-            )}
+        {(data ?? []).map((key) => (
+          <li key={key} className="text-sm">
+            <span className="font-medium">{key}</span>
           </li>
         ))}
+        {data?.length === 0 && (
+          <li className="text-sm text-gray-400">No tag keys yet.</li>
+        )}
       </ul>
     </div>
   );
@@ -232,7 +101,7 @@ function TagsTab() {
 // ── Health tab ────────────────────────────────────────────────────────────────
 
 function HealthTab() {
-  const { data } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['admin', 'health'],
     queryFn: async () => {
       const { data } = await apiClient.get<HealthStatus>('/health');
@@ -241,26 +110,53 @@ function HealthTab() {
     refetchInterval: 30_000,
   });
 
-  const services = ['db', 'redis', 'drive', 'shopify'] as const;
+  const services: { key: keyof HealthStatus['dependencies']; label: string }[] = [
+    { key: 'postgres', label: 'db' },
+    { key: 'redis',    label: 'redis' },
+    { key: 'google_drive', label: 'drive' },
+    { key: 'shopify',  label: 'shopify' },
+  ];
+
+  if (isLoading) return <p className="text-sm text-gray-400">Checking…</p>;
+  if (isError)   return <p className="text-sm text-red-500">Could not reach health endpoint.</p>;
 
   return (
     <div className="space-y-2 text-sm">
-      {services.map((svc) => (
-        <div key={svc} className="flex items-center gap-3">
-          <span className="w-16 capitalize text-gray-500">{svc}</span>
-          {data ? (
-            <span
-              className={
-                data[svc] === 'ok' ? 'text-green-600' : 'text-red-500'
-              }
-            >
-              {data[svc] === 'ok' ? '● OK' : '● Error'}
-            </span>
-          ) : (
-            <span className="text-gray-300">—</span>
-          )}
+      {data && (
+        <div className="mb-3 text-xs text-gray-400 uppercase tracking-wide">
+          Overall: <span className={
+            data.status === 'healthy' ? 'text-green-600' :
+            data.status === 'degraded' ? 'text-yellow-600' : 'text-red-500'
+          }>{data.status}</span>
         </div>
-      ))}
+      )}
+      {services.map(({ key, label }) => {
+        const dep = data?.dependencies[key];
+        return (
+          <div key={key} className="flex items-start gap-3">
+            <span className="w-20 capitalize text-gray-500">{label}</span>
+            {dep ? (
+              <div>
+                <span className={
+                  dep.status === 'healthy'   ? 'text-green-600' :
+                  dep.status === 'degraded'  ? 'text-yellow-600' : 'text-red-500'
+                }>
+                  {dep.status === 'healthy' ? '● OK' :
+                   dep.status === 'degraded' ? '● Degraded' : '● Unhealthy'}
+                </span>
+                {dep.message && (
+                  <div className="text-xs text-gray-400 mt-0.5">{dep.message}</div>
+                )}
+                {dep.quota_warning && (
+                  <div className="text-xs text-yellow-600 mt-0.5">Quota &gt; 90%</div>
+                )}
+              </div>
+            ) : (
+              <span className="text-gray-300">—</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

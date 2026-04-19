@@ -15,14 +15,20 @@ export interface SearchParams {
   facets?: boolean;
 }
 
+export interface FacetValue {
+  value: string;
+  count: number;
+}
+
 export interface SearchResult {
   assets: Record<string, unknown>[];
   total: number;
   page: number;
   limit: number;
   facets?: {
-    asset_type: Record<string, number>;
-    tags: Record<string, Record<string, number>>;
+    asset_type: FacetValue[];
+    status: FacetValue[];
+    tags: Record<string, FacetValue[]>;
   };
 }
 
@@ -97,23 +103,25 @@ export async function searchAssets(params: SearchParams): Promise<SearchResult> 
     queryStr = `
       WITH scored AS (
         SELECT
-          asset_id, file_name, asset_type, status, tags, created_at, updated_at,
-          product_titles, skus, tag_text, search_text,
+          m.asset_id AS id, m.file_name, m.asset_type, m.status, m.tags, m.created_at, m.updated_at,
+          m.product_titles, m.skus, m.tag_text, m.search_text,
+          a.thumbnail_url, a.file_size_bytes AS file_size, a.version, a.google_drive_id AS drive_file_id, a.mime_type,
           GREATEST(
-            similarity(search_text, ?),
+            similarity(m.search_text, ?),
             COALESCE((
               SELECT MAX(similarity(sku_val, ?) * ?)
-              FROM unnest(skus) AS sku_val
+              FROM unnest(m.skus) AS sku_val
             ), 0),
             COALESCE((
               SELECT MAX(similarity(pt, ?) * ?)
-              FROM unnest(product_titles) AS pt
+              FROM unnest(m.product_titles) AS pt
             ), 0),
-            COALESCE(similarity(tag_text, ?) * ?, 0)
+            COALESCE(similarity(m.tag_text, ?) * ?, 0)
           ) AS relevance
-        FROM asset_search_mv
+        FROM asset_search_mv m
+        JOIN assets a ON a.id = m.asset_id
         WHERE TRUE ${whereStr}
-          AND search_text % ?
+          AND m.search_text % ?
       )
       SELECT *, COUNT(*) OVER() AS total_count
       FROM scored
@@ -125,16 +133,18 @@ export async function searchAssets(params: SearchParams): Promise<SearchResult> 
     const sortKey = params.sort && ALLOWED_SORT_COLS[params.sort] && params.sort !== 'relevance'
       ? params.sort
       : 'created_at';
-    const sortClause = `${sortKey} ${order}`;
+    const sortClause = `m.${sortKey} ${order}`;
 
     queryBindings.push(...condBindings, limit, offset);
 
     queryStr = `
       SELECT
-        asset_id, file_name, asset_type, status, tags, created_at, updated_at,
-        product_titles, skus, tag_text, search_text,
+        m.asset_id AS id, m.file_name, m.asset_type, m.status, m.tags, m.created_at, m.updated_at,
+        m.product_titles, m.skus, m.tag_text, m.search_text,
+        a.thumbnail_url, a.file_size_bytes AS file_size, a.version, a.google_drive_id AS drive_file_id, a.mime_type,
         COUNT(*) OVER() AS total_count
-      FROM asset_search_mv
+      FROM asset_search_mv m
+      JOIN assets a ON a.id = m.asset_id
       WHERE TRUE ${whereStr}
       ORDER BY ${sortClause}
       LIMIT ? OFFSET ?
@@ -188,12 +198,21 @@ async function computeFacets(
 
   const whereStr = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
-  const [typeResult, tagResult] = await Promise.all([
+  const [typeResult, statusResult, tagResult] = await Promise.all([
     db.raw<{ rows: Array<{ asset_type: string; count: number }> }>(
       `SELECT m.asset_type, COUNT(DISTINCT m.asset_id)::int AS count
        FROM asset_search_mv m
        ${whereStr}
-       GROUP BY m.asset_type`,
+       GROUP BY m.asset_type
+       ORDER BY count DESC`,
+      bindings,
+    ),
+    db.raw<{ rows: Array<{ status: string; count: number }> }>(
+      `SELECT m.status, COUNT(DISTINCT m.asset_id)::int AS count
+       FROM asset_search_mv m
+       ${whereStr}
+       GROUP BY m.status
+       ORDER BY count DESC`,
       bindings,
     ),
     db.raw<{ rows: Array<{ key: string; value: string; count: number }> }>(
@@ -206,16 +225,21 @@ async function computeFacets(
     ),
   ]);
 
-  const assetTypeFacets: Record<string, number> = {};
-  for (const row of typeResult.rows) {
-    assetTypeFacets[row.asset_type] = Number(row.count);
-  }
+  const assetTypeFacets: FacetValue[] = typeResult.rows.map((r) => ({
+    value: r.asset_type,
+    count: Number(r.count),
+  }));
 
-  const tagFacets: Record<string, Record<string, number>> = {};
+  const statusFacets: FacetValue[] = statusResult.rows.map((r) => ({
+    value: r.status,
+    count: Number(r.count),
+  }));
+
+  const tagFacets: Record<string, FacetValue[]> = {};
   for (const row of tagResult.rows) {
-    if (!tagFacets[row.key]) tagFacets[row.key] = {};
-    tagFacets[row.key][row.value] = Number(row.count);
+    if (!tagFacets[row.key]) tagFacets[row.key] = [];
+    tagFacets[row.key].push({ value: row.value, count: Number(row.count) });
   }
 
-  return { asset_type: assetTypeFacets, tags: tagFacets };
+  return { asset_type: assetTypeFacets, status: statusFacets, tags: tagFacets };
 }
