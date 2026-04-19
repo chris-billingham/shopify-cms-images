@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { FacetSidebar } from './FacetSidebar';
 import { Asset, ActiveFilters, SearchResult } from '../types';
 import { apiClient } from '../api/client';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAuthStore } from '../stores/authStore';
 
 interface AssetLibraryProps {
   onAssetClick?: (asset: Asset) => void;
@@ -36,23 +37,168 @@ async function fetchAssets(query: string, filters: ActiveFilters, sort: string):
 const TYPE_ICON: Record<string, string> = { image: 'img', video: 'vid', text: 'txt', document: 'doc' };
 const THUMB_COLORS = ['#f0c8b4', '#cbdaf0', '#d5e4c8', '#f5e6a8', '#e4d4ea'];
 
+function previewUrl(assetId: string, token: string | null) {
+  return token ? `/api/assets/${assetId}/preview?token=${encodeURIComponent(token)}` : null;
+}
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+
+function Lightbox({
+  assets,
+  initialIndex,
+  token,
+  onClose,
+}: {
+  assets: Asset[];
+  initialIndex: number;
+  token: string | null;
+  onClose: () => void;
+}) {
+  const [idx, setIdx] = useState(initialIndex);
+  const asset = assets[idx];
+  const isImage = asset.asset_type === 'image';
+  const src = previewUrl(asset.id, token);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowRight') setIdx((i) => Math.min(i + 1, assets.length - 1));
+      if (e.key === 'ArrowLeft') setIdx((i) => Math.max(i - 1, 0));
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [assets.length, onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image preview"
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 100,
+        background: 'rgba(20, 16, 10, 0.88)',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      {/* Top bar */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'fixed', top: 0, left: 0, right: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 16px',
+          background: 'rgba(20,16,10,0.7)',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 12, color: '#e8e4da',
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
+          {asset.file_name}
+          <span style={{ marginLeft: 12, opacity: 0.5 }}>{idx + 1} / {assets.length}</span>
+        </span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a
+            href={src ?? '#'}
+            download={asset.file_name}
+            onClick={(e) => e.stopPropagation()}
+            style={{ color: '#e8e4da', fontSize: 12, textDecoration: 'underline' }}
+          >
+            ↓ download
+          </a>
+          <button
+            onClick={onClose}
+            aria-label="Close preview"
+            style={{
+              background: 'none', border: 'none', color: '#e8e4da',
+              cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {/* Image */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: '90vw', maxHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        {isImage && src ? (
+          <img
+            key={asset.id}
+            src={src}
+            alt={asset.file_name}
+            style={{ maxWidth: '90vw', maxHeight: '80vh', objectFit: 'contain', display: 'block' }}
+          />
+        ) : (
+          <div style={{
+            width: 300, height: 200, border: '2px dashed rgba(255,255,255,0.2)',
+            display: 'grid', placeItems: 'center',
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'rgba(255,255,255,0.5)',
+          }}>
+            [ {asset.asset_type} — no preview ]
+          </div>
+        )}
+      </div>
+
+      {/* Prev / Next */}
+      {idx > 0 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setIdx((i) => i - 1); }}
+          aria-label="Previous"
+          style={{
+            position: 'fixed', left: 12, top: '50%', transform: 'translateY(-50%)',
+            background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+            color: '#fff', fontSize: 22, cursor: 'pointer', padding: '8px 14px',
+          }}
+        >
+          ‹
+        </button>
+      )}
+      {idx < assets.length - 1 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setIdx((i) => i + 1); }}
+          aria-label="Next"
+          style={{
+            position: 'fixed', right: 12, top: '50%', transform: 'translateY(-50%)',
+            background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+            color: '#fff', fontSize: 22, cursor: 'pointer', padding: '8px 14px',
+          }}
+        >
+          ›
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Asset card ────────────────────────────────────────────────────────────────
+
 function AssetCard({
   asset,
   selected,
   onSelect,
   onClick,
+  onPreview,
   index,
+  token,
 }: {
   asset: Asset;
   selected: boolean;
   onSelect: (id: string, checked: boolean) => void;
   onClick: () => void;
+  onPreview: () => void;
   index: number;
+  token: string | null;
 }) {
   const kindLabel = TYPE_ICON[asset.asset_type] ?? asset.asset_type;
   const hue = THUMB_COLORS[index % THUMB_COLORS.length];
   const angle = (index * 37) % 180;
   const skuTag = asset.tags['sku'] ?? asset.tags['SKU'];
+  const src = previewUrl(asset.id, token);
+  const isImage = asset.asset_type === 'image';
 
   return (
     <div
@@ -85,20 +231,25 @@ function AssetCard({
       </div>
 
       {/* Thumbnail */}
-      <div style={{
-        aspectRatio: '1/1',
-        background: asset.thumbnail_url
-          ? undefined
-          : `repeating-linear-gradient(${angle}deg, ${hue} 0 8px, #fff 8px 16px)`,
-        display: 'grid',
-        placeItems: 'center',
-        position: 'relative',
-        overflow: 'hidden',
-      }}>
-        {asset.thumbnail_url ? (
+      <div
+        onClick={(e) => { if (isImage && src) { e.stopPropagation(); onPreview(); } }}
+        style={{
+          aspectRatio: '1/1',
+          background: src
+            ? undefined
+            : `repeating-linear-gradient(${angle}deg, ${hue} 0 8px, #fff 8px 16px)`,
+          display: 'grid',
+          placeItems: 'center',
+          position: 'relative',
+          overflow: 'hidden',
+          cursor: isImage && src ? 'zoom-in' : 'pointer',
+        }}
+      >
+        {src ? (
           <img
-            src={asset.thumbnail_url}
+            src={src}
             alt={asset.file_name}
+            loading="lazy"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
@@ -120,6 +271,22 @@ function AssetCard({
         }}>
           {kindLabel}
         </span>
+
+        {/* Zoom hint on hover — images only */}
+        {isImage && src && (
+          <span style={{
+            position: 'absolute', inset: 0,
+            display: 'grid', placeItems: 'center',
+            background: 'rgba(0,0,0,0)',
+            transition: 'background 0.15s',
+            fontSize: 22, color: '#fff',
+            opacity: 0,
+          }}
+          className="thumb-zoom-hint"
+          >
+            ⊕
+          </span>
+        )}
 
         {/* SKU badge */}
         {skuTag && (
@@ -163,7 +330,9 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
   const [filters, setFilters] = useState<ActiveFilters>({});
   const [sort, setSort] = useState('newest');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const { canUpload } = usePermissions();
+  const token = useAuthStore((s) => s.accessToken);
   const navigate = useNavigate();
 
   const { data, isLoading, isError, dataUpdatedAt } = useQuery({
@@ -189,6 +358,7 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
     : null;
 
   return (
+    <>
     <div style={{ display: 'flex', minHeight: '100%' }}>
       <FacetSidebar
         facets={data?.facets ?? {}}
@@ -296,7 +466,9 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
                   selected={selectedIds.has(asset.id)}
                   onSelect={handleSelect}
                   onClick={() => onAssetClick?.(asset)}
+                  onPreview={() => setPreviewIndex(i)}
                   index={i}
+                  token={token}
                 />
               </div>
             ))}
@@ -304,5 +476,15 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
         )}
       </div>
     </div>
+
+    {previewIndex !== null && data && (
+      <Lightbox
+        assets={data.assets}
+        initialIndex={previewIndex}
+        token={token}
+        onClose={() => setPreviewIndex(null)}
+      />
+    )}
+    </>
   );
 }

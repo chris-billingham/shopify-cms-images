@@ -100,8 +100,10 @@ export function createDriveService(options?: {
 
   async function uploadFile(
     stream: Readable,
-    metadata: { name: string; mimeType: string; size?: number }
+    metadata: { name: string; mimeType: string; size?: number },
+    parentId?: string
   ): Promise<{ id: string; webViewLink: string }> {
+    const effectiveParent = parentId ?? uploadParentId;
     return limiter.schedule(() =>
       withRetry(async () => {
         const drive = getDrive();
@@ -110,7 +112,7 @@ export function createDriveService(options?: {
             requestBody: {
               name: metadata.name,
               mimeType: metadata.mimeType,
-              parents: [uploadParentId],
+              parents: [effectiveParent],
             },
             media: { mimeType: metadata.mimeType, body: stream },
             fields: 'id,webViewLink',
@@ -213,7 +215,53 @@ export function createDriveService(options?: {
     );
   }
 
-  return { uploadFile, downloadFile, getFile, trashFile, getChecksum, getThumbnailUrl, listFiles };
+  async function listFolders(parentId?: string): Promise<DriveFile[]> {
+    return limiter.schedule(() =>
+      withRetry(async () => {
+        const drive = getDrive();
+        const effectiveParent = parentId ?? teamDriveId;
+        try {
+          const res = await drive.files.list({
+            corpora: 'drive',
+            driveId: teamDriveId,
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
+            fields: 'files(id,name,mimeType)',
+            pageSize: 200,
+            q: `'${effectiveParent}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            orderBy: 'name',
+          });
+          return (res.data.files as DriveFile[]) ?? [];
+        } catch (err) {
+          throw normaliseError(err);
+        }
+      }, retryOpts)
+    );
+  }
+
+  async function getFolderInfo(folderId: string): Promise<DriveFile> {
+    return limiter.schedule(() =>
+      withRetry(async () => {
+        const drive = getDrive();
+        try {
+          const res = await drive.files.get({
+            fileId: folderId,
+            fields: 'id,name,mimeType',
+            supportsAllDrives: true,
+          });
+          return res.data as DriveFile;
+        } catch (err) {
+          throw normaliseError(err);
+        }
+      }, retryOpts)
+    );
+  }
+
+  function getDefaultFolderId(): string {
+    return uploadParentId;
+  }
+
+  return { uploadFile, downloadFile, getFile, trashFile, getChecksum, getThumbnailUrl, listFiles, listFolders, getFolderInfo, getDefaultFolderId };
 }
 
 export type DriveService = ReturnType<typeof createDriveService>;

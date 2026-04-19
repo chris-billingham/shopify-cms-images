@@ -12,6 +12,7 @@ import tagsRoutes from './routes/tags.js';
 import searchRoutes from './routes/search.js';
 import jobsRoutes from './routes/jobs.js';
 import shopifyRoutes from './routes/shopify.js';
+import driveRoutes from './routes/drive.js';
 import healthRoutes from './routes/health.js';
 import { globalErrorHandler } from './middleware/error-handler.js';
 import { verifyAccessToken } from './services/auth.service.js';
@@ -61,6 +62,7 @@ export function buildApp() {
   app.register(searchRoutes, { prefix: '/api/search' });
   app.register(jobsRoutes, { prefix: '/api/jobs' });
   app.register(shopifyRoutes, { prefix: '/api/shopify' });
+  app.register(driveRoutes, { prefix: '/api/drive' });
   app.register(healthRoutes, { prefix: '/api/health' });
 
   // ── WebSocket endpoint (/api/ws?token=<jwt>) ──────────────────────────────

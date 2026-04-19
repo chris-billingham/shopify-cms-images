@@ -31,6 +31,12 @@ body {
   min-height: 100vh;
 }
 
+/* Thumbnail hover zoom hint */
+div:hover > .thumb-zoom-hint {
+  opacity: 1 !important;
+  background: rgba(0,0,0,0.3) !important;
+}
+
 /* ── Typography helpers ── */
 .font-display { font-family: 'Caveat', cursive; }
 .font-sketch  { font-family: 'Architects Daughter', sans-serif; }

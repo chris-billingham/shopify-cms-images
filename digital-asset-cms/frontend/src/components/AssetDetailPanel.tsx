@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Asset } from '../types';
 import { apiClient } from '../api/client';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAuthStore } from '../stores/authStore';
 
 interface AssetDetailPanelProps {
   asset: Asset;
@@ -36,6 +37,8 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const queryClient = useQueryClient();
   const { canEditTags, canDelete, canLinkProducts, canPushToShopify } = usePermissions();
+  const token = useAuthStore((s) => s.accessToken);
+  const previewSrc = token ? `/api/assets/${asset.id}/preview?token=${encodeURIComponent(token)}` : null;
 
   const { data: linkedData, refetch: refetchLinks } = useQuery({
     queryKey: ['asset-products', asset.id],
@@ -224,14 +227,14 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
           marginBottom: 10,
           overflow: 'hidden',
         }}>
-          {asset.thumbnail_url ? (
+          {previewSrc && asset.asset_type === 'image' ? (
             <img
-              src={asset.thumbnail_url}
+              src={previewSrc}
               alt={asset.file_name}
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             />
           ) : (
-            `[ ${asset.asset_type} preview ]`
+            `[ ${asset.asset_type} — no preview ]`
           )}
         </div>
 
@@ -369,7 +372,8 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
         gap: 6,
       }}>
         <a
-          href={`/api/assets/${asset.id}/download`}
+          href={previewSrc ?? '#'}
+          download={asset.file_name}
           className="btn-sketch primary"
           style={{ textDecoration: 'none' }}
         >

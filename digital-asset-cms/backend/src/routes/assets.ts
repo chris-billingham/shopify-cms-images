@@ -1,6 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
 import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { verifyAccessToken } from '../services/auth.service.js';
+import { db } from '../db/connection.js';
+import { config } from '../config/index.js';
 import {
   createAsset,
   getAsset,
@@ -16,7 +19,6 @@ import {
   OptimisticLockError,
 } from '../services/asset.service.js';
 import { checkIdempotencyKey, storeIdempotencyResult } from '../utils/idempotency.js';
-import { db } from '../db/connection.js';
 import { submitBulkDownload, processBulkDownload, BulkDownloadError } from '../jobs/bulk-download.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, bulkRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 
@@ -247,6 +249,41 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
       const { stream, asset } = await downloadAsset(id);
       reply.header('Content-Disposition', `attachment; filename="${asset['file_name'] as string}"`);
       reply.header('Content-Type', asset['mime_type'] as string);
+      return reply.send(stream);
+    } catch (err) {
+      if (err instanceof AssetNotFoundError) {
+        return reply.status(404).send({ error: { code: 'ASSET_NOT_FOUND', message: err.message } });
+      }
+      throw err;
+    }
+  });
+
+  // ── GET /api/assets/:id/preview?token= — inline image stream ─────────────
+  // Accepts token as query param so <img src> tags can authenticate.
+  fastify.get('/:id/preview', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { token } = request.query as { token?: string };
+
+    if (!token) {
+      return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'token query param required' } });
+    }
+
+    let payload: { user_id: string; role: string };
+    try {
+      payload = verifyAccessToken(token, config.JWT_SECRET);
+    } catch {
+      return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
+    }
+
+    const user = await db('users').where('id', payload.user_id).first();
+    if (!user || user.status !== 'active') {
+      return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'User account is deactivated' } });
+    }
+
+    try {
+      const { stream, asset } = await downloadAsset(id);
+      reply.header('Content-Type', asset['mime_type'] as string);
+      reply.header('Cache-Control', 'private, max-age=300');
       return reply.send(stream);
     } catch (err) {
       if (err instanceof AssetNotFoundError) {

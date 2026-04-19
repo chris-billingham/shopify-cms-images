@@ -2,6 +2,7 @@ import { Readable } from 'stream';
 import { db } from '../db/connection.js';
 import { driveService as _defaultDriveService, type DriveService } from './drive.service.js';
 import * as auditService from './audit.service.js';
+import { getSetting, DRIVE_FOLDER_KEY } from './settings.service.js';
 import { config } from '../config/index.js';
 
 // ── Error types ───────────────────────────────────────────────────────────────
@@ -105,11 +106,12 @@ export async function createAsset(
   const { assetType } = validateMimeAndSize(mimeType, fileSizeBytes);
 
   const stream = Readable.from(buffer);
+  const activeFolderId = await getSetting(DRIVE_FOLDER_KEY) ?? config.GOOGLE_DRIVE_FOLDER_ID;
   const { id: googleDriveId, webViewLink } = await drive.uploadFile(stream, {
     name: fileName,
     mimeType,
     size: fileSizeBytes,
-  });
+  }, activeFolderId ?? undefined);
 
   let asset: Record<string, unknown>;
   try {
@@ -275,11 +277,12 @@ export async function replaceAsset(
   const { assetType } = validateMimeAndSize(mimeType, fileSizeBytes);
 
   const stream = Readable.from(buffer);
+  const activeFolderId = await getSetting(DRIVE_FOLDER_KEY) ?? config.GOOGLE_DRIVE_FOLDER_ID;
   const { id: newDriveId, webViewLink } = await drive.uploadFile(stream, {
     name: fileName,
     mimeType,
     size: fileSizeBytes,
-  });
+  }, activeFolderId ?? undefined);
 
   let newAsset: Record<string, unknown>;
   try {
