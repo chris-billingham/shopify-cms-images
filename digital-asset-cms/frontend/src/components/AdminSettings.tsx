@@ -7,6 +7,163 @@ import { ShopifySyncPanel } from './ShopifySyncPanel';
 
 type Tab = 'users' | 'drive' | 'shopify' | 'tags' | 'jobs' | 'health';
 
+// ── Shopify tab ───────────────────────────────────────────────────────────────
+
+interface ShopifySettings {
+  store_domain: string;
+  admin_api_token_hint: string;
+  webhook_secret_hint: string;
+  source: 'database' | 'environment';
+}
+
+function ShopifyTab() {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({ store_domain: '', admin_api_token: '', webhook_secret: '' });
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['shopify', 'settings'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ShopifySettings>('/shopify/settings');
+      return data;
+    },
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      await apiClient.put('/shopify/settings', form);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shopify', 'settings'] });
+      setForm({ store_domain: '', admin_api_token: '', webhook_secret: '' });
+      setSaveError(null);
+      setSaveMsg('Settings saved.');
+      setTimeout(() => setSaveMsg(null), 3000);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })
+        ?.response?.data?.error?.message ?? 'Failed to save settings';
+      setSaveError(msg);
+    },
+  });
+
+  const sectionLabel = (text: string) => (
+    <div style={{
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 11,
+      color: 'var(--ink-soft)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.06em',
+      marginBottom: 8,
+    }}>
+      {text}
+    </div>
+  );
+
+  const kv = (label: string, value: string | undefined) => (
+    <div className="kv-row" style={{ marginBottom: 4 }}>
+      <span className="kv-key">{label}</span>
+      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+        {isLoading ? '…' : value ?? '—'}
+      </span>
+    </div>
+  );
+
+  return (
+    <div style={{ fontSize: 13 }}>
+      {/* Current values */}
+      <div style={{ marginBottom: 16 }}>
+        {sectionLabel('current connection')}
+        <div style={{
+          border: '1.5px solid var(--ink)',
+          boxShadow: '3px 3px 0 var(--shadow)',
+          background: 'var(--paper-2)',
+          padding: '10px 12px',
+        }}>
+          {kv('store domain', data?.store_domain)}
+          {kv('api token', data?.admin_api_token_hint)}
+          {kv('webhook secret', data?.webhook_secret_hint)}
+          {data && (
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+              source: {data.source}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Edit form */}
+      <div style={{ marginBottom: 20 }}>
+        {sectionLabel('update settings')}
+        <div style={{
+          border: '1.5px solid var(--ink)',
+          boxShadow: '3px 3px 0 var(--shadow)',
+          background: '#fff',
+        }}>
+          <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(
+              [
+                { key: 'store_domain', label: 'store domain', placeholder: 'mystore.myshopify.com', type: 'text' },
+                { key: 'admin_api_token', label: 'api token', placeholder: 'leave blank to keep current', type: 'password' },
+                { key: 'webhook_secret', label: 'webhook secret', placeholder: 'leave blank to keep current', type: 'password' },
+              ] as const
+            ).map(({ key, label, placeholder, type }) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{
+                  width: 110, fontSize: 12, color: 'var(--ink-soft)', flexShrink: 0,
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}>
+                  {label}
+                </label>
+                <input
+                  type={type}
+                  value={form[key]}
+                  placeholder={placeholder}
+                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                  style={{
+                    flex: 1,
+                    border: '1.5px solid var(--ink)',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 12,
+                    padding: '3px 6px',
+                    background: '#fff',
+                  }}
+                />
+              </div>
+            ))}
+
+            {saveError && (
+              <div style={{ fontSize: 12, color: 'var(--accent)', fontFamily: "'JetBrains Mono', monospace" }}>
+                {saveError}
+              </div>
+            )}
+            {saveMsg && (
+              <div style={{ fontSize: 12, color: 'var(--green)', fontFamily: "'JetBrains Mono', monospace" }}>
+                {saveMsg}
+              </div>
+            )}
+
+            <div>
+              <button
+                className="btn-sketch sm primary"
+                onClick={() => save.mutate()}
+                disabled={save.isPending || (!form.store_domain && !form.admin_api_token && !form.webhook_secret)}
+              >
+                {save.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Sync controls */}
+      <div>
+        {sectionLabel('sync')}
+      </div>
+    </div>
+  );
+}
+
 interface DependencyStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
   message?: string;
@@ -695,7 +852,12 @@ export function AdminSettings() {
       <div className="max-w-2xl">
         {activeTab === 'users' && <UsersTab />}
         {activeTab === 'drive' && <DriveTab />}
-        {activeTab === 'shopify' && <ShopifySyncPanel />}
+        {activeTab === 'shopify' && (
+          <>
+            <ShopifyTab />
+            <ShopifySyncPanel />
+          </>
+        )}
         {activeTab === 'tags' && <TagsTab />}
         {activeTab === 'jobs' && <JobDashboard />}
         {activeTab === 'health' && <HealthTab />}

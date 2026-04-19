@@ -4,10 +4,10 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 import { db } from '../db/connection.js';
 import { driveService } from '../services/drive.service.js';
-import { shopifyService } from '../services/shopify.service.js';
+import { createShopifyService } from '../services/shopify.service.js';
 import { upsertProduct } from '../services/product.service.js';
 import * as auditService from '../services/audit.service.js';
-import { getJob } from '../services/job.service.js';
+import { config } from '../config/index.js';
 import {
   submitSyncProducts,
   submitImportImages,
@@ -16,6 +16,27 @@ import {
   runImportImages,
   runReconciliation,
 } from '../jobs/shopify-reconcile.js';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const SETTING_KEYS = ['shopify_store_domain', 'shopify_admin_api_token', 'shopify_webhook_secret'] as const;
+
+async function getActiveShopifyCredentials() {
+  const rows = await db('system_settings').whereIn('key', SETTING_KEYS).select('key', 'value');
+  const m: Record<string, string> = {};
+  for (const row of rows) {
+    if (row.value) m[row.key as string] = row.value as string;
+  }
+  return {
+    storeDomain: m['shopify_store_domain'] ?? config.SHOPIFY_STORE_DOMAIN,
+    apiToken: m['shopify_admin_api_token'] ?? config.SHOPIFY_ADMIN_API_TOKEN,
+    webhookSecret: m['shopify_webhook_secret'] ?? config.SHOPIFY_WEBHOOK_SECRET,
+  };
+}
+
+function maskSecret(value: string): string {
+  return value.length > 4 ? '••••••••' + value.slice(-4) : '••••';
+}
 
 const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
   // Rate limit: 120 req/min per user (§5.2)
@@ -27,13 +48,68 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
     addHeaders: RATE_LIMIT_HEADERS,
   });
 
+  // ── GET /api/shopify/settings — admin only ────────────────────────────────
+  fastify.get(
+    '/settings',
+    { preHandler: [authenticate, requireRole('admin')] },
+    async (_request, reply) => {
+      const creds = await getActiveShopifyCredentials();
+      const rows = await db('system_settings').whereIn('key', SETTING_KEYS).select('key', 'value');
+      const stored = new Set(rows.filter((r) => r.value).map((r) => r.key as string));
+
+      return reply.send({
+        store_domain: creds.storeDomain,
+        admin_api_token_hint: maskSecret(creds.apiToken),
+        webhook_secret_hint: maskSecret(creds.webhookSecret),
+        source: stored.has('shopify_store_domain') ? 'database' : 'environment',
+      });
+    }
+  );
+
+  // ── PUT /api/shopify/settings — admin only ────────────────────────────────
+  fastify.put(
+    '/settings',
+    { preHandler: [authenticate, requireRole('admin')] },
+    async (request, reply) => {
+      const body = request.body as {
+        store_domain?: string;
+        admin_api_token?: string;
+        webhook_secret?: string;
+      };
+
+      const updates: Array<{ key: string; value: string }> = [];
+      if (body.store_domain?.trim()) updates.push({ key: 'shopify_store_domain', value: body.store_domain.trim() });
+      if (body.admin_api_token?.trim()) updates.push({ key: 'shopify_admin_api_token', value: body.admin_api_token.trim() });
+      if (body.webhook_secret?.trim()) updates.push({ key: 'shopify_webhook_secret', value: body.webhook_secret.trim() });
+
+      if (updates.length === 0) {
+        return reply.status(400).send({ error: { code: 'NO_UPDATES', message: 'No settings provided' } });
+      }
+
+      const now = new Date();
+      for (const { key, value } of updates) {
+        await db('system_settings')
+          .insert({ key, value, updated_at: now })
+          .onConflict('key')
+          .merge(['value', 'updated_at']);
+      }
+
+      await auditService.log(request.user!.user_id, 'update_settings', 'system', 'shopify', {
+        updated_keys: updates.map((u) => u.key),
+      });
+
+      return reply.send({ ok: true });
+    }
+  );
+
   // ── POST /api/shopify/sync-products — background job ─────────────────────
   fastify.post(
     '/sync-products',
     { preHandler: [authenticate, requireRole('editor', 'admin')] },
     async (request, reply) => {
       const jobId = await submitSyncProducts(request.user!.user_id);
-      void runSyncProducts(jobId);
+      const creds = await getActiveShopifyCredentials();
+      void runSyncProducts(jobId, createShopifyService(creds));
       return reply.status(202).send({ job_id: jobId });
     }
   );
@@ -44,7 +120,8 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
     { preHandler: [authenticate, requireRole('admin')] },
     async (request, reply) => {
       const jobId = await submitImportImages(request.user!.user_id);
-      void runImportImages(jobId);
+      const creds = await getActiveShopifyCredentials();
+      void runImportImages(jobId, createShopifyService(creds));
       return reply.status(202).send({ job_id: jobId });
     }
   );
@@ -83,8 +160,9 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const buffer = Buffer.concat(chunks);
 
-      // Push to Shopify
-      const shopifyImage = await shopifyService.pushImage(
+      // Push to Shopify using current credentials
+      const creds = await getActiveShopifyCredentials();
+      const shopifyImage = await createShopifyService(creds).pushImage(
         String(link.shopify_id),
         buffer,
         { filename: asset.file_name as string }
@@ -123,7 +201,8 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
       const hmacHeader = (request.headers['x-shopify-hmac-sha256'] as string | undefined) ?? '';
       const topic = (request.headers['x-shopify-topic'] as string | undefined) ?? '';
 
-      if (!shopifyService.verifyWebhook(rawBody, hmacHeader)) {
+      const creds = await getActiveShopifyCredentials();
+      if (!createShopifyService(creds).verifyWebhook(rawBody, hmacHeader)) {
         return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Invalid HMAC signature' } });
       }
 
@@ -179,7 +258,8 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
     { preHandler: [authenticate, requireRole('admin')] },
     async (request, reply) => {
       const jobId = await submitReconciliation(request.user!.user_id);
-      void runReconciliation(jobId);
+      const creds = await getActiveShopifyCredentials();
+      void runReconciliation(jobId, createShopifyService(creds));
       return reply.status(202).send({ job_id: jobId });
     }
   );
