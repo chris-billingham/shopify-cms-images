@@ -128,7 +128,7 @@ export interface LinkedAsset {
   sort_order: number;
 }
 
-export type JobStatus = 'waiting' | 'active' | 'completed' | 'failed';
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export interface Job {
   id: string;

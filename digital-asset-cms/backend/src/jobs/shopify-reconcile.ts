@@ -5,6 +5,8 @@ import { shopifyService as defaultShopifyService, type ShopifyService } from '..
 import { driveService as defaultDriveService, type DriveService } from '../services/drive.service.js';
 import { upsertProduct, upsertVariant } from '../services/product.service.js';
 import { refreshSearchView } from '../services/asset.service.js';
+import { getSetting, DRIVE_FOLDER_KEY } from '../services/settings.service.js';
+import { config } from '../config/index.js';
 import { createJob, setJobRunning, updateJobProgress, completeJob, failJob } from '../services/job.service.js';
 
 // ── Helper: fetch all Shopify products across pages ───────────────────────────
@@ -69,6 +71,8 @@ export async function runImportImages(
 ): Promise<void> {
   await setJobRunning(jobId);
   try {
+    const activeFolderId = (await getSetting(DRIVE_FOLDER_KEY)) ?? config.GOOGLE_DRIVE_FOLDER_ID ?? undefined;
+
     const cmsProducts = await db('products')
       .whereNotNull('shopify_id')
       .where('status', 'active')
@@ -102,7 +106,8 @@ export async function runImportImages(
 
         const { id: driveId, webViewLink } = await drive.uploadFile(
           Readable.from(buffer),
-          { name: fileName, mimeType: 'image/jpeg', size: buffer.length }
+          { name: fileName, mimeType: 'image/jpeg', size: buffer.length },
+          activeFolderId
         );
 
         const tags: Record<string, string> = {};

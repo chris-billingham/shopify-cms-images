@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Product, ProductVariant } from '../types';
+import { Product, ProductVariant, WebSocketMessage, JobProgressPayload } from '../types';
 import { apiClient } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 async function fetchProducts(): Promise<Product[]> {
   const { data } = await apiClient.get<{ products: Product[] }>('/products');
@@ -167,6 +168,13 @@ function ProductDetail({ productId }: { productId: string }) {
   );
 }
 
+interface ActiveJob {
+  id: string;
+  type: 'sync' | 'import';
+  progress: number;
+  status: JobProgressPayload['status'];
+}
+
 export function ProductBrowser() {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -174,6 +182,7 @@ export function ProductBrowser() {
   const [vendorFilter, setVendorFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
 
   const { data: products, isLoading, isError } = useQuery({
     queryKey: ['products'],
@@ -207,38 +216,99 @@ export function ProductBrowser() {
     });
   }, [products, search, vendorFilter, categoryFilter, statusFilter]);
 
+  useWebSocket((msg: WebSocketMessage) => {
+    if (msg.type !== 'job_progress') return;
+    const payload = msg.payload as JobProgressPayload;
+    setActiveJob((prev) => {
+      if (!prev || prev.id !== payload.jobId) return prev;
+      const next = { ...prev, progress: payload.progress, status: payload.status };
+      if (payload.status === 'completed' || payload.status === 'failed') {
+        setTimeout(() => {
+          setActiveJob(null);
+          queryClient.invalidateQueries({ queryKey: ['products'] });
+        }, 2500);
+      }
+      return next;
+    });
+  });
+
   const syncMutation = useMutation({
-    mutationFn: async () => apiClient.post('/shopify/sync-products', {}),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
+    mutationFn: async () => {
+      const { data } = await apiClient.post<{ job_id: string }>('/shopify/sync-products', {});
+      return data;
+    },
+    onSuccess: (data) => {
+      setActiveJob({ id: data.job_id, type: 'sync', progress: 0, status: 'running' });
+    },
   });
 
   const importMutation = useMutation({
-    mutationFn: async () => apiClient.post('/shopify/import-images', {}),
+    mutationFn: async () => {
+      const { data } = await apiClient.post<{ job_id: string }>('/shopify/import-images', {});
+      return data;
+    },
+    onSuccess: (data) => {
+      setActiveJob({ id: data.job_id, type: 'import', progress: 0, status: 'running' });
+    },
   });
+
+  const jobRunning = activeJob !== null && activeJob.status === 'running';
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <h2 className="text-lg font-semibold">Products</h2>
         <div className="flex gap-2">
           <button
             onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
+            disabled={syncMutation.isPending || jobRunning}
             aria-label="Sync Products"
             className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
           >
-            {syncMutation.isPending ? 'Syncing…' : 'Sync Products'}
+            {syncMutation.isPending ? 'Starting…' : 'Sync Products'}
           </button>
           <button
             onClick={() => importMutation.mutate()}
-            disabled={importMutation.isPending}
+            disabled={importMutation.isPending || jobRunning}
             aria-label="Import Images"
             className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200 disabled:opacity-50"
           >
-            {importMutation.isPending ? 'Importing…' : 'Import Images'}
+            {importMutation.isPending ? 'Starting…' : 'Import Images'}
           </button>
         </div>
       </div>
+
+      {/* Job progress bar */}
+      {activeJob && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between text-xs mb-1" style={{ color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+            <span>
+              {activeJob.type === 'sync' ? 'Syncing products' : 'Importing images'}
+              {activeJob.status === 'completed' ? ' — done' : activeJob.status === 'failed' ? ' — failed' : '…'}
+            </span>
+            <span style={{ color: activeJob.status === 'failed' ? 'var(--accent)' : activeJob.status === 'completed' ? 'var(--green)' : 'var(--ink-soft)' }}>
+              {activeJob.status === 'running' && activeJob.type === 'sync' ? '' : `${activeJob.progress}%`}
+            </span>
+          </div>
+          <div style={{ height: 3, background: 'var(--paper-2)', border: '1px solid var(--ink-soft)', overflow: 'hidden' }}>
+            {activeJob.status === 'running' && activeJob.type === 'sync' ? (
+              <div style={{
+                height: '100%',
+                width: '40%',
+                background: 'var(--blue)',
+                animation: 'progress-indeterminate 1.4s ease-in-out infinite',
+              }} />
+            ) : (
+              <div style={{
+                height: '100%',
+                width: `${activeJob.progress}%`,
+                background: activeJob.status === 'failed' ? 'var(--accent)' : activeJob.status === 'completed' ? 'var(--green)' : 'var(--blue)',
+                transition: 'width 0.3s ease',
+              }} />
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 mb-4">
         <input

@@ -14,10 +14,13 @@ import {
   listAssets,
   replaceAsset,
   getAssetVersions,
+  refreshSearchView,
   AssetValidationError,
   AssetNotFoundError,
   OptimisticLockError,
 } from '../services/asset.service.js';
+import { driveService } from '../services/drive.service.js';
+import * as auditService from '../services/audit.service.js';
 import { checkIdempotencyKey, storeIdempotencyResult } from '../utils/idempotency.js';
 import { submitBulkDownload, processBulkDownload, BulkDownloadError } from '../jobs/bulk-download.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, bulkRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
@@ -82,6 +85,65 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
         }
         throw err;
       }
+    }
+  );
+
+  // ── GET /api/assets/stats — asset counts (admin only) ────────────────────
+  fastify.get('/stats', { preHandler: [authenticate, requireRole('admin')] }, async (_request, reply) => {
+    const row = await db('assets')
+      .whereNot('status', 'deleted')
+      .count('id as active_count')
+      .first() as { active_count: string } | undefined;
+    return reply.send({ active_count: parseInt(row?.active_count ?? '0', 10) });
+  });
+
+  // ── POST /api/assets/reset-library — soft-delete all assets (admin only) ─
+  fastify.post(
+    '/reset-library',
+    { preHandler: [authenticate, requireRole('admin')] },
+    async (request, reply) => {
+      const body = request.body as { trash_drive_files?: boolean } | undefined;
+      const trashDriveFiles = body?.trash_drive_files === true;
+
+      // Collect Drive IDs before we wipe them
+      const activeAssets = await db('assets')
+        .whereNot('status', 'deleted')
+        .select('id', 'google_drive_id');
+
+      const resetCount = activeAssets.length;
+
+      await db.transaction(async (trx) => {
+        await trx('asset_products').delete();
+        await trx('assets')
+          .whereNot('status', 'deleted')
+          .update({ status: 'deleted', updated_at: new Date() });
+      });
+
+      await refreshSearchView().catch(() => {});
+
+      // Optionally trash Drive files — tolerate partial failures
+      let driveTrashed = 0;
+      let driveErrors = 0;
+      if (trashDriveFiles && activeAssets.length > 0) {
+        const results = await Promise.allSettled(
+          activeAssets
+            .filter((a) => a.google_drive_id)
+            .map((a) => driveService.trashFile(a.google_drive_id as string))
+        );
+        for (const r of results) {
+          if (r.status === 'fulfilled') driveTrashed++;
+          else driveErrors++;
+        }
+      }
+
+      await auditService.log(request.user!.user_id, 'reset_library', 'system', null, {
+        reset_count: resetCount,
+        trash_drive_files: trashDriveFiles,
+        drive_trashed: driveTrashed,
+        drive_errors: driveErrors,
+      });
+
+      return reply.send({ reset_count: resetCount, drive_trashed: driveTrashed, drive_errors: driveErrors });
     }
   );
 

@@ -31,6 +31,11 @@ body {
   min-height: 100vh;
 }
 
+@keyframes progress-indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
 /* Thumbnail hover zoom hint */
 div:hover > .thumb-zoom-hint {
   opacity: 1 !important;

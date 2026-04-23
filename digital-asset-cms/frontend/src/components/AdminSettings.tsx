@@ -5,7 +5,7 @@ import { getAccessToken } from '../stores/authStore';
 import { JobDashboard } from './JobDashboard';
 import { ShopifySyncPanel } from './ShopifySyncPanel';
 
-type Tab = 'users' | 'drive' | 'shopify' | 'tags' | 'jobs' | 'health';
+type Tab = 'users' | 'drive' | 'shopify' | 'tags' | 'jobs' | 'health' | 'library';
 
 // ── Shopify tab ───────────────────────────────────────────────────────────────
 
@@ -945,6 +945,183 @@ function HealthTab() {
   );
 }
 
+// ── Library tab ───────────────────────────────────────────────────────────────
+
+function LibraryTab() {
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const [trashDrive, setTrashDrive] = useState(false);
+  const [result, setResult] = useState<{ reset_count: number; drive_trashed: number; drive_errors: number } | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ['assets', 'stats'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ active_count: number }>('/assets/stats');
+      return data;
+    },
+  });
+
+  const reset = useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.post<{
+        reset_count: number;
+        drive_trashed: number;
+        drive_errors: number;
+      }>('/assets/reset-library', { trash_drive_files: trashDrive });
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
+      setConfirming(false);
+      setResult(data);
+      setResetError(null);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })
+        ?.response?.data?.error?.message ?? 'Reset failed';
+      setResetError(msg);
+    },
+  });
+
+  const sectionLabel = (text: string) => (
+    <div style={{
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 11,
+      color: 'var(--ink-soft)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.06em',
+      marginBottom: 8,
+    }}>
+      {text}
+    </div>
+  );
+
+  const activeCount = stats?.active_count ?? 0;
+
+  return (
+    <div style={{ fontSize: 13 }}>
+
+      {/* Stats */}
+      <div style={{ marginBottom: 20 }}>
+        {sectionLabel('library')}
+        <div style={{
+          border: '1.5px solid var(--ink)',
+          boxShadow: '3px 3px 0 var(--shadow)',
+          background: 'var(--paper-2)',
+          padding: '10px 12px',
+        }}>
+          <div className="kv-row">
+            <span className="kv-key">active assets</span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {statsLoading ? '…' : activeCount}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Danger zone */}
+      <div>
+        {sectionLabel('danger zone')}
+        <div style={{
+          border: '1.5px solid var(--accent)',
+          boxShadow: '3px 3px 0 var(--shadow)',
+          background: 'var(--paper-2)',
+          padding: '12px',
+        }}>
+          <div style={{
+            fontSize: 12,
+            fontFamily: "'JetBrains Mono', monospace",
+            color: 'var(--ink)',
+            marginBottom: 12,
+            lineHeight: 1.6,
+          }}>
+            Soft-delete all assets and remove all product–asset links.
+            Assets remain in the database with <span style={{ color: 'var(--accent)' }}>status=deleted</span>.
+          </div>
+
+          {result && !confirming && (
+            <div style={{
+              marginBottom: 12,
+              fontSize: 12,
+              color: 'var(--green)',
+              fontFamily: "'JetBrains Mono', monospace",
+            }}>
+              Reset complete — {result.reset_count} assets deleted
+              {result.drive_trashed > 0 && `, ${result.drive_trashed} Drive files trashed`}
+              {result.drive_errors > 0 && ` (${result.drive_errors} Drive errors)`}.
+            </div>
+          )}
+
+          {!confirming ? (
+            <button
+              className="btn-sketch sm"
+              style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
+              onClick={() => { setResult(null); setResetError(null); setConfirming(true); }}
+              disabled={activeCount === 0 && !statsLoading}
+            >
+              Reset library…
+            </button>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{
+                fontSize: 12,
+                color: 'var(--accent)',
+                fontFamily: "'JetBrains Mono', monospace",
+                fontWeight: 600,
+              }}>
+                This will soft-delete {activeCount} asset{activeCount !== 1 ? 's' : ''} and clear all product links.
+              </div>
+
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                fontFamily: "'JetBrains Mono', monospace",
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={trashDrive}
+                  onChange={(e) => setTrashDrive(e.target.checked)}
+                />
+                Also trash files in Google Drive
+              </label>
+
+              {resetError && (
+                <div style={{ fontSize: 12, color: 'var(--accent)', fontFamily: "'JetBrains Mono', monospace" }}>
+                  {resetError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  className="btn-sketch sm"
+                  style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
+                  onClick={() => reset.mutate()}
+                  disabled={reset.isPending}
+                >
+                  {reset.isPending ? 'Resetting…' : 'Confirm reset'}
+                </button>
+                <button
+                  className="btn-sketch sm ghost"
+                  onClick={() => { setConfirming(false); setResetError(null); }}
+                  disabled={reset.isPending}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function AdminSettings() {
@@ -957,6 +1134,7 @@ export function AdminSettings() {
     { id: 'tags', label: 'Tags' },
     { id: 'jobs', label: 'Jobs' },
     { id: 'health', label: 'Health' },
+    { id: 'library', label: 'Library' },
   ];
 
   return (
@@ -992,6 +1170,7 @@ export function AdminSettings() {
         {activeTab === 'tags' && <TagsTab />}
         {activeTab === 'jobs' && <JobDashboard />}
         {activeTab === 'health' && <HealthTab />}
+        {activeTab === 'library' && <LibraryTab />}
       </div>
     </div>
   );

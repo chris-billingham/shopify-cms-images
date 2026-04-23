@@ -40,7 +40,7 @@ const initialJobs: Job[] = [
   {
     id: 'job-sync-1',
     name: 'shopify-sync',
-    status: 'active',
+    status: 'running',
     progress: 10,
     created_at: '2026-01-01T00:00:00Z',
   },
@@ -89,7 +89,7 @@ describe('JobDashboard', () => {
           jobId: 'job-sync-1',
           jobName: 'shopify-sync',
           progress: 75,
-          status: 'active',
+          status: 'running',
         },
       }),
     });
