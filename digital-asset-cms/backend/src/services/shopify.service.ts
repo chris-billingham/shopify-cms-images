@@ -9,6 +9,7 @@ export interface ShopifyVariant {
   sku?: string | null;
   title?: string | null;
   price?: string | null;
+  inventory_quantity?: number | null;
 }
 
 export interface ShopifyProduct {

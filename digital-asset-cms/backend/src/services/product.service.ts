@@ -24,6 +24,7 @@ export interface UpsertVariantData {
   sku?: string | null;
   title?: string | null;
   price?: string | null;
+  inventory_quantity?: number | null;
 }
 
 // ── Product operations ────────────────────────────────────────────────────────
@@ -100,6 +101,7 @@ export async function upsertVariant(
     sku: data.sku ?? null,
     title: data.title ?? null,
     price: data.price ?? null,
+    inventory_quantity: data.inventory_quantity ?? null,
     updated_at: new Date(),
   };
 
@@ -107,7 +109,7 @@ export async function upsertVariant(
     const [row] = await db('product_variants')
       .insert(insertData)
       .onConflict('shopify_variant_id')
-      .merge(['product_id', 'sku', 'title', 'price', 'updated_at'])
+      .merge(['product_id', 'sku', 'title', 'price', 'inventory_quantity', 'updated_at'])
       .returning('*');
     return row as Record<string, unknown>;
   }

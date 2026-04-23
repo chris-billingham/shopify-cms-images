@@ -29,6 +29,7 @@ export interface ProductVariant {
   title: string;
   price?: string | null;
   shopify_variant_id?: string | null;
+  inventory_quantity?: number | null;
 }
 
 export interface Product {

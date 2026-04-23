@@ -48,6 +48,7 @@ export async function runSyncProducts(
             sku: variant.sku ?? null,
             title: variant.title ?? null,
             price: variant.price ?? null,
+            inventory_quantity: variant.inventory_quantity ?? null,
           });
         }
         totalProducts++;
@@ -203,6 +204,7 @@ export async function runReconciliation(
               sku: variant.sku ?? null,
               title: variant.title ?? null,
               price: variant.price ?? null,
+              inventory_quantity: variant.inventory_quantity ?? null,
             });
           }
         }

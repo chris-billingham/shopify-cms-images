@@ -131,7 +131,7 @@ function ProductDetail({ productId }: { productId: string }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
               <thead>
                 <tr style={{ background: 'var(--paper-2)', borderBottom: '1.5px solid var(--ink)' }}>
-                  {(['sku', 'title', 'price', 'shopify id'] as const).map((h) => (
+                  {(['sku', 'title', 'price', 'stock', 'shopify id'] as const).map((h) => (
                     <th key={h} style={{
                       padding: '4px 10px', textAlign: 'left',
                       fontSize: 10, color: 'var(--ink-soft)',
@@ -153,12 +153,28 @@ function ProductDetail({ productId }: { productId: string }) {
                     <td style={{ padding: '5px 10px' }}>
                       {v.price != null ? `£${Number(v.price).toFixed(2)}` : '—'}
                     </td>
+                    <td style={{ padding: '5px 10px', textAlign: 'right' }}>
+                      {v.inventory_quantity != null ? v.inventory_quantity : '—'}
+                    </td>
                     <td style={{ padding: '5px 10px', color: 'var(--ink-soft)', fontSize: 10 }}>
                       {v.shopify_variant_id || '—'}
                     </td>
                   </tr>
                 ))}
               </tbody>
+              {variants.some((v) => v.inventory_quantity != null) && (
+                <tfoot>
+                  <tr style={{ borderTop: '1.5px solid var(--ink)', background: 'var(--paper-2)' }}>
+                    <td colSpan={3} style={{ padding: '4px 10px', fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      total stock
+                    </td>
+                    <td style={{ padding: '4px 10px', textAlign: 'right', fontWeight: 600 }}>
+                      {variants.reduce((sum, v) => sum + (v.inventory_quantity ?? 0), 0)}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         )}
