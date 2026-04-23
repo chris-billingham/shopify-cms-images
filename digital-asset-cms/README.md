@@ -33,7 +33,7 @@ cd digital-asset-cms/digital-asset-cms
 cp .env.example .env
 ```
 
-Open `.env` and fill in the six required values:
+Open `.env` and fill in the required values:
 
 ```bash
 # The JSON key for your Google service account (see Prerequisites)
@@ -48,12 +48,16 @@ SHOPIFY_WEBHOOK_SECRET=your_webhook_secret
 # A 64-character random string — generate with: openssl rand -hex 32
 JWT_SECRET=your_64_char_secret_here
 
+# Google OAuth (required — used for sign-in with Google)
+GOOGLE_OAUTH_CLIENT_ID=your_client_id.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
+
 # Your domain (or localhost for local testing)
 APP_URL=https://cms.yourdomain.com
 FRONTEND_ORIGIN=https://cms.yourdomain.com
 DB_PASSWORD=change_this_to_a_strong_password
 
-# Email address that will become the first admin account
+# Email for the first admin account (auto-created on first boot)
 SEED_ADMIN_EMAIL=admin@yourdomain.com
 ```
 
@@ -65,15 +69,15 @@ docker compose up -d
 
 This starts six services: Caddy (reverse proxy), app (API), worker (background jobs), frontend, PostgreSQL, and Redis. Database migrations run automatically on first boot.
 
-### 3. Seed the admin account
+### 3. Set your admin password
 
-Create the admin user and set a password in one step:
+The app creates an admin account automatically if `SEED_ADMIN_EMAIL` is set in `.env`. By default it is created without a password (Google OAuth sign-in only). To also enable email/password login, run:
 
 ```bash
 docker compose exec app node dist/scripts/seed-admin.js --email admin@yourdomain.com --password yourpassword
 ```
 
-Omit `--password` if you want Google OAuth only. The script does nothing if users already exist.
+The script exits with an error if any users already exist (to prevent privilege escalation). If the stack is already running and you forgot to set a password, see [Admin seeding](#admin-seeding).
 
 ### 4. Open the CMS
 
@@ -138,13 +142,15 @@ https://www.googleapis.com/auth/drive
 3. Install the app. Copy the **Admin API access token** (`shpat_...`).
 4. For webhooks: go to Settings → Notifications → Webhooks and note the **webhook signing secret**, or generate one when creating webhooks.
 
-### Google OAuth (optional, for sign-in with Google)
+### Google OAuth (required)
 
-1. In Google Cloud Console → APIs & Services → Credentials, create an OAuth 2.0 Client ID.
+The CMS requires Google OAuth credentials to start — they are used to validate Google ID tokens on sign-in.
+
+1. In Google Cloud Console → APIs & Services → Credentials, create an OAuth 2.0 Client ID (type: Web application).
 2. Set the authorised redirect URI to `https://cms.yourdomain.com/api/auth/google/callback`.
-3. Copy the Client ID and Client Secret into `.env`.
+3. Copy the Client ID and Client Secret into `.env` as `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`.
 
-If you skip this, users log in with email + password only. The admin password is set via the CLI above.
+The app will refuse to start with a validation error if these values are missing or empty.
 
 ---
 
@@ -162,6 +168,8 @@ All configuration is via environment variables in `.env`. Copy `.env.example` to
 | `SHOPIFY_ADMIN_API_TOKEN` | Shopify Custom App admin API token |
 | `SHOPIFY_WEBHOOK_SECRET` | Used to verify incoming Shopify webhooks |
 | `JWT_SECRET` | Random 64-character string — never reuse between environments |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth 2.0 Client ID (required to start) |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth 2.0 Client Secret (required to start) |
 | `APP_URL` | Full URL the app is served from, e.g. `https://cms.yourdomain.com` |
 | `FRONTEND_ORIGIN` | Same as `APP_URL` unless frontend is on a separate domain |
 | `DB_PASSWORD` | PostgreSQL password (also used in `DATABASE_URL`) |
@@ -171,8 +179,6 @@ All configuration is via environment variables in `.env`. Copy `.env.example` to
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GOOGLE_OAUTH_CLIENT_ID` | — | Enable Google sign-in |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | — | Enable Google sign-in |
 | `DATABASE_URL` | `postgresql://cms_user:password@db:5432/cms` | Override if using external DB |
 | `REDIS_URL` | `redis://redis:6379` | Override if using external Redis |
 | `NODE_ENV` | `production` | Set to `development` for verbose logging |
@@ -192,25 +198,14 @@ All configuration is via environment variables in `.env`. Copy `.env.example` to
 
 ### Caddyfile
 
-Edit `Caddyfile` to set your domain:
+The `Caddyfile` uses two environment variables — set them in `.env` or in the shell before starting:
 
-```
-cms.yourdomain.com {
-    handle /api/ws { reverse_proxy app:3000 }
-    handle /api/*  { reverse_proxy app:3000 }
-    handle         { reverse_proxy frontend:80 }
-    ...
-}
+```bash
+CMS_HOST=https://cms.yourdomain.com      # default: http://localhost
+PREVIEW_HOST=https://preview.cms.yourdomain.com  # default: http://preview.localhost
 ```
 
-Caddy handles TLS automatically via Let's Encrypt. For local development, remove the domain line to use Caddy's auto-generated localhost certificate:
-
-```
-:443 {
-    tls internal
-    ...
-}
-```
+Caddy provisions TLS automatically via Let's Encrypt when `CMS_HOST` is an `https://` URL. For local development the default `http://localhost` is used and no certificate is needed.
 
 ---
 
@@ -257,11 +252,13 @@ docker compose down -v        # stop and delete all data (destructive)
 
 ### Seed admin on an already-running stack
 
+The seed script only runs if no users exist. If the database already has users, it exits with an error. To reset: wipe the users table first, then run:
+
 ```bash
 docker compose exec app node dist/scripts/seed-admin.js --email admin@yourdomain.com --password yourpassword
 ```
 
-Omit `--password` to create an account that can only sign in via Google OAuth. The script exits without changes if users already exist.
+Omit `--password` to create an account that can only sign in via Google OAuth.
 
 ---
 
@@ -868,9 +865,9 @@ For a team of up to 10 users and 50,000 assets, a single-server Compose stack is
 
 ### Admin seeding
 
-The admin seeding is a one-time operation. It runs automatically on first boot if `SEED_ADMIN_EMAIL` is set and the `users` table is empty. It does nothing on subsequent boots.
+On first boot, if `SEED_ADMIN_EMAIL` is set in `.env` and the `users` table is empty, an admin account is created automatically (without a password — Google OAuth sign-in only). On subsequent boots this is a no-op.
 
-To force a new admin seed (e.g. after wiping the database):
+To create an admin with email/password login, use the CLI script. It exits with an error if any users already exist:
 
 ```bash
 docker compose exec app node dist/scripts/seed-admin.js --email admin@yourdomain.com --password yourpassword
