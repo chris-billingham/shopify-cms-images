@@ -3,6 +3,7 @@ import { google, type drive_v3 } from 'googleapis';
 import type { Readable } from 'stream';
 import { withRetry, NonRetryableError, HttpError, type RetryOptions } from '../utils/retry.js';
 import { config } from '../config/index.js';
+import { getSetting, GOOGLE_SERVICE_ACCOUNT_KEY_SETTING } from './settings.service.js';
 
 // ── Error types ───────────────────────────────────────────────────────────────
 
@@ -86,16 +87,21 @@ export function createDriveService(options?: {
   const retryOpts = options?.retryOptions ?? {};
 
   let _drive: drive_v3.Drive | null = null;
-  function getDrive(): drive_v3.Drive {
+  async function getDrive(): Promise<drive_v3.Drive> {
     if (options?.driveClient) return options.driveClient;
     if (_drive) return _drive;
-    const credentials = JSON.parse(config.GOOGLE_SERVICE_ACCOUNT_KEY);
+    const storedKey = await getSetting(GOOGLE_SERVICE_ACCOUNT_KEY_SETTING);
+    const credentials = JSON.parse(storedKey ?? config.GOOGLE_SERVICE_ACCOUNT_KEY);
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ['https://www.googleapis.com/auth/drive'],
     });
     _drive = google.drive({ version: 'v3', auth });
     return _drive;
+  }
+
+  function resetAuth(): void {
+    _drive = null;
   }
 
   async function uploadFile(
@@ -106,7 +112,7 @@ export function createDriveService(options?: {
     const effectiveParent = parentId ?? uploadParentId;
     return limiter.schedule(() =>
       withRetry(async () => {
-        const drive = getDrive();
+        const drive = await getDrive();
         try {
           const res = await drive.files.create({
             requestBody: {
@@ -130,7 +136,7 @@ export function createDriveService(options?: {
   async function downloadFile(driveId: string): Promise<Readable> {
     return limiter.schedule(() =>
       withRetry(async () => {
-        const drive = getDrive();
+        const drive = await getDrive();
         try {
           const res = await drive.files.get(
             { fileId: driveId, alt: 'media', supportsAllDrives: true },
@@ -147,7 +153,7 @@ export function createDriveService(options?: {
   async function getFile(driveId: string): Promise<DriveFile> {
     return limiter.schedule(() =>
       withRetry(async () => {
-        const drive = getDrive();
+        const drive = await getDrive();
         try {
           const res = await drive.files.get({
             fileId: driveId,
@@ -165,7 +171,7 @@ export function createDriveService(options?: {
   async function trashFile(driveId: string): Promise<void> {
     return limiter.schedule(() =>
       withRetry(async () => {
-        const drive = getDrive();
+        const drive = await getDrive();
         try {
           await drive.files.update({
             fileId: driveId,
@@ -192,7 +198,7 @@ export function createDriveService(options?: {
   async function listFiles(opts: ListFilesOptions): Promise<ListFilesResult> {
     return limiter.schedule(() =>
       withRetry(async () => {
-        const drive = getDrive();
+        const drive = await getDrive();
         try {
           const res = await drive.files.list({
             corpora: 'drive',
@@ -218,7 +224,7 @@ export function createDriveService(options?: {
   async function listFolders(parentId?: string): Promise<DriveFile[]> {
     return limiter.schedule(() =>
       withRetry(async () => {
-        const drive = getDrive();
+        const drive = await getDrive();
         const effectiveParent = parentId ?? teamDriveId;
         try {
           const res = await drive.files.list({
@@ -242,7 +248,7 @@ export function createDriveService(options?: {
   async function getFolderInfo(folderId: string): Promise<DriveFile> {
     return limiter.schedule(() =>
       withRetry(async () => {
-        const drive = getDrive();
+        const drive = await getDrive();
         try {
           const res = await drive.files.get({
             fileId: folderId,
@@ -261,7 +267,7 @@ export function createDriveService(options?: {
     return uploadParentId;
   }
 
-  return { uploadFile, downloadFile, getFile, trashFile, getChecksum, getThumbnailUrl, listFiles, listFolders, getFolderInfo, getDefaultFolderId };
+  return { uploadFile, downloadFile, getFile, trashFile, getChecksum, getThumbnailUrl, listFiles, listFolders, getFolderInfo, getDefaultFolderId, resetAuth };
 }
 
 export type DriveService = ReturnType<typeof createDriveService>;

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Product, ProductVariant } from '../types';
 import { apiClient } from '../api/client';
+import { useAuthStore } from '../stores/authStore';
 
 async function fetchProducts(): Promise<Product[]> {
   const { data } = await apiClient.get<{ products: Product[] }>('/products');
@@ -13,25 +14,156 @@ async function fetchVariants(productId: string): Promise<ProductVariant[]> {
   return data.variants ?? [];
 }
 
-function ProductVariants({ productId }: { productId: string }) {
-  const { data, isLoading } = useQuery({
+interface LinkedAsset {
+  link_id: string;
+  asset_id: string;
+  file_name: string;
+  asset_type: string;
+  thumbnail_url: string | null;
+  role: string;
+  sort_order: number;
+}
+
+async function fetchProductAssets(productId: string): Promise<LinkedAsset[]> {
+  const { data } = await apiClient.get<{ assets: LinkedAsset[] }>(`/products/${productId}/assets`);
+  return data.assets ?? [];
+}
+
+function ProductDetail({ productId }: { productId: string }) {
+  const token = useAuthStore((s) => s.accessToken);
+
+  const { data: variants, isLoading: variantsLoading } = useQuery({
     queryKey: ['products', productId, 'variants'],
     queryFn: () => fetchVariants(productId),
   });
 
-  if (isLoading) return <p className="text-xs text-gray-400 p-2">Loading variants…</p>;
-  if (!data?.length) return <p className="text-xs text-gray-400 p-2">No variants.</p>;
+  const { data: assets, isLoading: assetsLoading } = useQuery({
+    queryKey: ['products', productId, 'assets'],
+    queryFn: () => fetchProductAssets(productId),
+  });
+
+  const sectionLabel = (text: string) => (
+    <div style={{
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 10,
+      color: 'var(--ink-soft)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.06em',
+      marginBottom: 8,
+    }}>
+      {text}
+    </div>
+  );
 
   return (
-    <ul className="space-y-0.5">
-      {data.map((v) => (
-        <li key={v.id} className="text-xs text-gray-600 flex gap-4">
-          <span className="font-mono">{v.sku || '—'}</span>
-          <span>{v.title}</span>
-          {v.price && <span className="text-gray-400">£{v.price}</span>}
-        </li>
-      ))}
-    </ul>
+    <div style={{ padding: '12px 16px', background: 'var(--paper-2)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Images */}
+      <div>
+        {sectionLabel('linked images')}
+        {assetsLoading ? (
+          <div style={{ fontSize: 12, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>Loading…</div>
+        ) : !assets?.length ? (
+          <div style={{ fontSize: 12, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>No images linked.</div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {assets.map((asset) => {
+              const previewSrc = asset.asset_type === 'image' && token
+                ? `/api/assets/${asset.asset_id}/preview?token=${encodeURIComponent(token)}`
+                : null;
+              return (
+                <div
+                  key={asset.link_id}
+                  title={asset.file_name}
+                  style={{
+                    width: 72, height: 72,
+                    border: '1.5px solid var(--ink)',
+                    background: 'var(--paper)',
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                    position: 'relative',
+                  }}
+                >
+                  {previewSrc ? (
+                    <img
+                      src={previewSrc}
+                      alt={asset.file_name}
+                      loading="lazy"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div style={{
+                      width: '100%', height: '100%',
+                      display: 'grid', placeItems: 'center',
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 10, color: 'var(--ink-soft)',
+                    }}>
+                      {asset.asset_type}
+                    </div>
+                  )}
+                  {asset.role && asset.role !== 'gallery' && (
+                    <span style={{
+                      position: 'absolute', bottom: 2, left: 2,
+                      fontSize: 8, padding: '1px 3px',
+                      background: 'var(--ink)', color: 'var(--paper)',
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}>
+                      {asset.role}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Inventory */}
+      <div>
+        {sectionLabel('inventory')}
+        {variantsLoading ? (
+          <div style={{ fontSize: 12, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>Loading…</div>
+        ) : !variants?.length ? (
+          <div style={{ fontSize: 12, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>No variants.</div>
+        ) : (
+          <div style={{ border: '1.5px solid var(--ink)', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
+              <thead>
+                <tr style={{ background: 'var(--paper-2)', borderBottom: '1.5px solid var(--ink)' }}>
+                  {(['sku', 'title', 'price', 'shopify id'] as const).map((h) => (
+                    <th key={h} style={{
+                      padding: '4px 10px', textAlign: 'left',
+                      fontSize: 10, color: 'var(--ink-soft)',
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                      fontWeight: 400, whiteSpace: 'nowrap',
+                    }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {variants.map((v) => (
+                  <tr key={v.id} style={{ borderBottom: '1px dashed var(--ink-soft)' }}>
+                    <td style={{ padding: '5px 10px', color: v.sku ? 'var(--ink)' : 'var(--ink-soft)' }}>
+                      {v.sku || '—'}
+                    </td>
+                    <td style={{ padding: '5px 10px' }}>{v.title || '—'}</td>
+                    <td style={{ padding: '5px 10px' }}>
+                      {v.price != null ? `£${Number(v.price).toFixed(2)}` : '—'}
+                    </td>
+                    <td style={{ padding: '5px 10px', color: 'var(--ink-soft)', fontSize: 10 }}>
+                      {v.shopify_variant_id || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+    </div>
   );
 }
 
@@ -195,11 +327,11 @@ export function ProductBrowser() {
                   </td>
                 </tr>
 
-                {/* Variants (expanded) */}
+                {/* Detail panel (expanded) */}
                 {expandedId === product.id && (
                   <tr>
-                    <td colSpan={5} className="pb-2 pl-4">
-                      <ProductVariants productId={product.id} />
+                    <td colSpan={5} style={{ padding: 0, borderBottom: '1.5px solid var(--ink)' }}>
+                      <ProductDetail productId={product.id} />
                     </td>
                   </tr>
                 )}

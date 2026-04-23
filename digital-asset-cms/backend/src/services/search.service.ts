@@ -90,12 +90,12 @@ export async function searchAssets(params: SearchParams): Promise<SearchResult> 
           : 'relevance DESC';
 
     queryBindings.push(
-      params.q,        // similarity(search_text, ?)
+      params.q,        // word_similarity(?, search_text)
       params.q, wSku,  // similarity(sku_val, ?) * ?
-      params.q, wTitle, // similarity(pt, ?) * ?
-      params.q, wTag,  // similarity(tag_text, ?) * ?
+      params.q, wTitle, // word_similarity(?, pt) * ?
+      params.q, wTag,  // word_similarity(?, tag_text) * ?
       ...condBindings,
-      params.q,        // search_text % ?
+      params.q,        // ? <% search_text
       limit,
       offset,
     );
@@ -107,21 +107,21 @@ export async function searchAssets(params: SearchParams): Promise<SearchResult> 
           m.product_titles, m.skus, m.tag_text, m.search_text,
           a.thumbnail_url, a.file_size_bytes AS file_size, a.version, a.google_drive_id AS drive_file_id, a.mime_type,
           GREATEST(
-            similarity(m.search_text, ?),
+            word_similarity(?, m.search_text),
             COALESCE((
               SELECT MAX(similarity(sku_val, ?) * ?)
               FROM unnest(m.skus) AS sku_val
             ), 0),
             COALESCE((
-              SELECT MAX(similarity(pt, ?) * ?)
+              SELECT MAX(word_similarity(?, pt) * ?)
               FROM unnest(m.product_titles) AS pt
             ), 0),
-            COALESCE(similarity(m.tag_text, ?) * ?, 0)
+            COALESCE(word_similarity(?, m.tag_text) * ?, 0)
           ) AS relevance
         FROM asset_search_mv m
         JOIN assets a ON a.id = m.asset_id
         WHERE TRUE ${whereStr}
-          AND m.search_text % ?
+          AND ? <% m.search_text
       )
       SELECT *, COUNT(*) OVER() AS total_count
       FROM scored
@@ -192,7 +192,7 @@ async function computeFacets(
     bindings.push(JSON.stringify({ [key]: value }));
   }
   if (params.q) {
-    conditions.push('m.search_text % ?');
+    conditions.push('? <% m.search_text');
     bindings.push(params.q);
   }
 

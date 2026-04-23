@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { driveService } from '../services/drive.service.js';
-import { getSetting, setSetting, DRIVE_FOLDER_KEY } from '../services/settings.service.js';
+import { getSetting, setSetting, DRIVE_FOLDER_KEY, GOOGLE_SERVICE_ACCOUNT_KEY_SETTING } from '../services/settings.service.js';
 import { config } from '../config/index.js';
+import * as auditService from '../services/audit.service.js';
 
 const driveRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -73,6 +74,68 @@ const driveRoutes: FastifyPluginAsync = async (fastify) => {
           error: { code: 'DRIVE_ERROR', message: e.message ?? 'Could not verify folder' },
         });
       }
+    }
+  );
+
+  // ── GET /api/drive/settings — service account key info ────────────────────
+  fastify.get(
+    '/settings',
+    { preHandler: [authenticate, requireRole('admin')] },
+    async (_request, reply) => {
+      const storedKey = await getSetting(GOOGLE_SERVICE_ACCOUNT_KEY_SETTING);
+      const source = storedKey ? 'database' : 'environment';
+
+      let client_email: string | null = null;
+      let project_id: string | null = null;
+      try {
+        const parsed = JSON.parse(storedKey ?? config.GOOGLE_SERVICE_ACCOUNT_KEY) as Record<string, unknown>;
+        client_email = typeof parsed.client_email === 'string' ? parsed.client_email : null;
+        project_id = typeof parsed.project_id === 'string' ? parsed.project_id : null;
+      } catch {
+        // ignore parse errors
+      }
+
+      return reply.send({ client_email, project_id, source });
+    }
+  );
+
+  // ── PUT /api/drive/settings — save service account key ───────────────────
+  fastify.put(
+    '/settings',
+    { preHandler: [authenticate, requireRole('admin')] },
+    async (request, reply) => {
+      const body = request.body as { service_account_key?: string };
+      const raw = body?.service_account_key?.trim();
+
+      if (!raw) {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: 'service_account_key is required' },
+        });
+      }
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: 'service_account_key must be valid JSON' },
+        });
+      }
+
+      if (parsed.type !== 'service_account' || !parsed.client_email || !parsed.private_key) {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: 'JSON does not appear to be a valid service account key' },
+        });
+      }
+
+      await setSetting(GOOGLE_SERVICE_ACCOUNT_KEY_SETTING, raw);
+      driveService.resetAuth();
+
+      await auditService.log(request.user!.user_id, 'update_settings', 'system', 'google_drive', {
+        updated_keys: ['google_service_account_key'],
+      });
+
+      return reply.send({ ok: true, client_email: parsed.client_email, project_id: parsed.project_id ?? null });
     }
   );
 };

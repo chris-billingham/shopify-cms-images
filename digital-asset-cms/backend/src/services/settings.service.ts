@@ -13,3 +13,4 @@ export async function setSetting(key: string, value: string): Promise<void> {
 }
 
 export const DRIVE_FOLDER_KEY = 'drive_upload_folder_id';
+export const GOOGLE_SERVICE_ACCOUNT_KEY_SETTING = 'google_service_account_key';

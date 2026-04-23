@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
+import { db } from '../db/connection.js';
 import {
   getProduct,
   listProducts,
@@ -56,6 +57,28 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params as { id: string };
     const variants = await getVariants(id);
     return reply.send({ variants });
+  });
+
+  // ── GET /api/products/:id/assets — linked assets for a product ─────────────
+  fastify.get('/:id/assets', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const assets = await db('asset_products as ap')
+      .join('assets as a', 'ap.asset_id', 'a.id')
+      .where('ap.product_id', id)
+      .whereNot('a.status', 'deleted')
+      .orderBy('ap.sort_order', 'asc')
+      .select(
+        'ap.id as link_id',
+        'ap.sort_order',
+        'ap.role',
+        'a.id as asset_id',
+        'a.file_name',
+        'a.asset_type',
+        'a.thumbnail_url',
+        'a.mime_type',
+        'a.file_size_bytes as file_size',
+      );
+    return reply.send({ assets });
   });
 
   // ── POST /api/products/:id/assets — link an asset ─────────────────────────

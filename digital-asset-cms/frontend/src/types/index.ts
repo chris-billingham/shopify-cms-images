@@ -27,8 +27,8 @@ export interface ProductVariant {
   id: string;
   sku: string;
   title: string;
-  price?: string;
-  shopify_variant_id?: string;
+  price?: string | null;
+  shopify_variant_id?: string | null;
 }
 
 export interface Product {
@@ -57,6 +57,8 @@ export interface Facets {
 export interface SearchResult {
   assets: Asset[];
   total: number;
+  page: number;
+  limit: number;
   facets: Facets;
 }
 

@@ -504,6 +504,12 @@ function UsersTab() {
 
 // ── Drive tab ─────────────────────────────────────────────────────────────────
 
+interface DriveSettings {
+  client_email: string | null;
+  project_id: string | null;
+  source: 'database' | 'environment';
+}
+
 interface DriveFolder { id: string; name: string; }
 interface ActiveFolder { folder_id: string; folder_name: string; is_default: boolean; }
 
@@ -641,7 +647,10 @@ function FolderBrowser({
 function DriveTab() {
   const queryClient = useQueryClient();
   const [browsing, setBrowsing] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [folderSaveMsg, setFolderSaveMsg] = useState<string | null>(null);
+  const [keyJson, setKeyJson] = useState('');
+  const [keySaveMsg, setKeySaveMsg] = useState<string | null>(null);
+  const [keySaveError, setKeySaveError] = useState<string | null>(null);
 
   const { data: health } = useQuery({
     queryKey: ['health'],
@@ -651,10 +660,18 @@ function DriveTab() {
     },
   });
 
-  const { data: activeFolder, isLoading } = useQuery({
+  const { data: activeFolder, isLoading: folderLoading } = useQuery({
     queryKey: ['drive', 'folder'],
     queryFn: async () => {
       const { data } = await apiClient.get<ActiveFolder>('/drive/folder');
+      return data;
+    },
+  });
+
+  const { data: driveSettings, isLoading: settingsLoading } = useQuery({
+    queryKey: ['drive', 'settings'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<DriveSettings>('/drive/settings');
       return data;
     },
   });
@@ -665,18 +682,50 @@ function DriveTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['drive', 'folder'] });
       setBrowsing(false);
-      setSaveMsg('Folder saved.');
-      setTimeout(() => setSaveMsg(null), 3000);
+      setFolderSaveMsg('Folder saved.');
+      setTimeout(() => setFolderSaveMsg(null), 3000);
+    },
+  });
+
+  const saveKey = useMutation({
+    mutationFn: async () => {
+      await apiClient.put('/drive/settings', { service_account_key: keyJson });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drive', 'settings'] });
+      queryClient.invalidateQueries({ queryKey: ['health'] });
+      setKeyJson('');
+      setKeySaveError(null);
+      setKeySaveMsg('Service account key saved.');
+      setTimeout(() => setKeySaveMsg(null), 3000);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })
+        ?.response?.data?.error?.message ?? 'Failed to save key';
+      setKeySaveError(msg);
     },
   });
 
   const drive = health?.dependencies.google_drive;
   const connected = drive?.status === 'healthy';
 
+  const sectionLabel = (text: string) => (
+    <div style={{
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 11,
+      color: 'var(--ink-soft)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.06em',
+      marginBottom: 8,
+    }}>
+      {text}
+    </div>
+  );
+
   return (
     <div style={{ fontSize: 13 }}>
       {/* Connection status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <span style={{ color: 'var(--ink-soft)' }}>Status:</span>
         <span style={{
           color: connected ? 'var(--green)' : drive?.status === 'degraded' ? '#a06000' : 'var(--accent)',
@@ -685,37 +734,119 @@ function DriveTab() {
         </span>
       </div>
 
-      {/* Active upload folder */}
-      <div className="kv-row" style={{ marginBottom: 8 }}>
-        <span className="kv-key">upload folder</span>
-        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
-          {isLoading ? '…' : activeFolder?.folder_name ?? '—'}
-          {activeFolder?.is_default && (
-            <span style={{ marginLeft: 6, color: 'var(--ink-soft)', fontSize: 10 }}>(default)</span>
+      {/* Service account key */}
+      <div style={{ marginBottom: 20 }}>
+        {sectionLabel('service account')}
+        <div style={{
+          border: '1.5px solid var(--ink)',
+          boxShadow: '3px 3px 0 var(--shadow)',
+          background: 'var(--paper-2)',
+          padding: '10px 12px',
+          marginBottom: 10,
+        }}>
+          <div className="kv-row" style={{ marginBottom: 4 }}>
+            <span className="kv-key">account</span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {settingsLoading ? '…' : driveSettings?.client_email ?? '—'}
+            </span>
+          </div>
+          <div className="kv-row" style={{ marginBottom: 4 }}>
+            <span className="kv-key">project</span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {settingsLoading ? '…' : driveSettings?.project_id ?? '—'}
+            </span>
+          </div>
+          {driveSettings && (
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+              source: {driveSettings.source}
+            </div>
           )}
-        </span>
+        </div>
+
+        <div style={{
+          border: '1.5px solid var(--ink)',
+          boxShadow: '3px 3px 0 var(--shadow)',
+          background: '#fff',
+        }}>
+          <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={{ fontSize: 12, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+              paste service account JSON key
+            </label>
+            <textarea
+              value={keyJson}
+              onChange={(e) => setKeyJson(e.target.value)}
+              placeholder={'{\n  "type": "service_account",\n  "project_id": "...",\n  ...\n}'}
+              rows={6}
+              style={{
+                border: '1.5px solid var(--ink)',
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 11,
+                padding: '6px 8px',
+                background: '#fff',
+                resize: 'vertical',
+                width: '100%',
+                boxSizing: 'border-box',
+              }}
+            />
+
+            {keySaveError && (
+              <div style={{ fontSize: 12, color: 'var(--accent)', fontFamily: "'JetBrains Mono', monospace" }}>
+                {keySaveError}
+              </div>
+            )}
+            {keySaveMsg && (
+              <div style={{ fontSize: 12, color: 'var(--green)', fontFamily: "'JetBrains Mono', monospace" }}>
+                {keySaveMsg}
+              </div>
+            )}
+
+            <div>
+              <button
+                className="btn-sketch sm primary"
+                onClick={() => saveKey.mutate()}
+                disabled={saveKey.isPending || !keyJson.trim()}
+              >
+                {saveKey.isPending ? 'Saving…' : 'Save key'}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {saveMsg && (
-        <div style={{ fontSize: 12, color: 'var(--green)', marginBottom: 8 }}>{saveMsg}</div>
-      )}
+      {/* Upload folder */}
+      <div style={{ marginBottom: 16 }}>
+        {sectionLabel('upload folder')}
+        <div className="kv-row" style={{ marginBottom: 8 }}>
+          <span className="kv-key">folder</span>
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+            {folderLoading ? '…' : activeFolder?.folder_name ?? '—'}
+            {activeFolder?.is_default && (
+              <span style={{ marginLeft: 6, color: 'var(--ink-soft)', fontSize: 10 }}>(default)</span>
+            )}
+          </span>
+        </div>
 
-      {!browsing && (
-        <button
-          className="btn-sketch sm"
-          onClick={() => setBrowsing(true)}
-          disabled={!connected}
-        >
-          ◫ Browse &amp; change folder
-        </button>
-      )}
+        {folderSaveMsg && (
+          <div style={{ fontSize: 12, color: 'var(--green)', marginBottom: 8 }}>{folderSaveMsg}</div>
+        )}
 
-      {browsing && (
-        <FolderBrowser
-          onSelect={(id, name) => setFolder.mutate({ folderId: id })}
-          onCancel={() => setBrowsing(false)}
-        />
-      )}
+        {!browsing && (
+          <button
+            className="btn-sketch sm"
+            onClick={() => setBrowsing(true)}
+            disabled={!connected}
+          >
+            ◫ Browse &amp; change folder
+          </button>
+        )}
+
+        {browsing && (
+          <FolderBrowser
+            onSelect={(id, _name) => setFolder.mutate({ folderId: id })}
+            onCancel={() => setBrowsing(false)}
+          />
+        )}
+      </div>
     </div>
   );
 }

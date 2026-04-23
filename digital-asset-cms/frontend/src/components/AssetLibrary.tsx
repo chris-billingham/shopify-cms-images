@@ -18,7 +18,9 @@ const SORT_OPTIONS = [
   { value: 'size', label: 'size' },
 ];
 
-async function fetchAssets(query: string, filters: ActiveFilters, sort: string): Promise<SearchResult> {
+const PAGE_SIZE = 50;
+
+async function fetchAssets(query: string, filters: ActiveFilters, sort: string, page: number): Promise<SearchResult> {
   const params = new URLSearchParams();
   if (query) params.set('q', query);
   if (filters.type) params.set('type', filters.type);
@@ -29,6 +31,8 @@ async function fetchAssets(query: string, filters: ActiveFilters, sort: string):
     });
   }
   if (sort) params.set('sort', sort);
+  params.set('page', String(page));
+  params.set('limit', String(PAGE_SIZE));
   params.set('facets', 'true');
   const { data } = await apiClient.get<SearchResult>(`/search?${params}`);
   return data;
@@ -324,11 +328,87 @@ function AssetCard({
   );
 }
 
+// ── Pager ─────────────────────────────────────────────────────────────────────
+
+function Pager({ page, total, limit, onChange }: {
+  page: number;
+  total: number;
+  limit: number;
+  onChange: (p: number) => void;
+}) {
+  const totalPages = Math.ceil(total / limit);
+  if (totalPages <= 1) return null;
+
+  const windowSize = 5;
+  const half = Math.floor(windowSize / 2);
+  let start = Math.max(1, page - half);
+  const end = Math.min(totalPages, start + windowSize - 1);
+  if (end - start < windowSize - 1) start = Math.max(1, end - windowSize + 1);
+  const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      marginTop: 20,
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 12,
+    }}>
+      <button
+        className="btn-sketch sm"
+        onClick={() => onChange(page - 1)}
+        disabled={page <= 1}
+      >
+        ← prev
+      </button>
+
+      {start > 1 && (
+        <>
+          <button className="btn-sketch sm" onClick={() => onChange(1)}>1</button>
+          {start > 2 && <span style={{ color: 'var(--ink-soft)', padding: '0 2px' }}>…</span>}
+        </>
+      )}
+
+      {pages.map((p) => (
+        <button
+          key={p}
+          className={`btn-sketch sm${p === page ? ' primary' : ''}`}
+          onClick={() => onChange(p)}
+          aria-current={p === page ? 'page' : undefined}
+        >
+          {p}
+        </button>
+      ))}
+
+      {end < totalPages && (
+        <>
+          {end < totalPages - 1 && <span style={{ color: 'var(--ink-soft)', padding: '0 2px' }}>…</span>}
+          <button className="btn-sketch sm" onClick={() => onChange(totalPages)}>{totalPages}</button>
+        </>
+      )}
+
+      <button
+        className="btn-sketch sm"
+        onClick={() => onChange(page + 1)}
+        disabled={page >= totalPages}
+      >
+        next →
+      </button>
+
+      <span style={{ marginLeft: 8, color: 'var(--ink-soft)' }}>
+        page {page} of {totalPages}
+      </span>
+    </div>
+  );
+}
+
 export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState<ActiveFilters>({});
   const [sort, setSort] = useState('newest');
+  const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const { canUpload } = usePermissions();
@@ -336,8 +416,8 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
   const navigate = useNavigate();
 
   const { data, isLoading, isError, dataUpdatedAt } = useQuery({
-    queryKey: ['assets', 'search', searchQuery, filters, sort],
-    queryFn: () => fetchAssets(searchQuery, filters, sort),
+    queryKey: ['assets', 'search', searchQuery, filters, sort, page],
+    queryFn: () => fetchAssets(searchQuery, filters, sort, page),
   });
 
   const handleSelect = useCallback((id: string, checked: boolean) => {
@@ -350,7 +430,19 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setPage(1);
     setSearchQuery(searchInput);
+  };
+
+  const handleFilterChange = (next: ActiveFilters) => {
+    setPage(1);
+    setFilters(next);
+  };
+
+  const handleSortChange = () => {
+    const idx = SORT_OPTIONS.findIndex((o) => o.value === sort);
+    setSort(SORT_OPTIONS[(idx + 1) % SORT_OPTIONS.length].value);
+    setPage(1);
   };
 
   const refreshedAgo = dataUpdatedAt
@@ -363,7 +455,7 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
       <FacetSidebar
         facets={data?.facets ?? {}}
         activeFilters={filters}
-        onFilterChange={setFilters}
+        onFilterChange={handleFilterChange}
       />
 
       <div style={{ flex: 1, padding: 18, minWidth: 0, minHeight: 640 }}>
@@ -400,10 +492,7 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
               type="button"
               className="btn-sketch"
               style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-              onClick={() => {
-                const idx = SORT_OPTIONS.findIndex((o) => o.value === sort);
-                setSort(SORT_OPTIONS[(idx + 1) % SORT_OPTIONS.length].value);
-              }}
+              onClick={handleSortChange}
             >
               sort: {SORT_OPTIONS.find((o) => o.value === sort)?.label} ▾
             </button>
@@ -473,6 +562,15 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
               </div>
             ))}
           </div>
+        )}
+
+        {data && data.total > data.limit && (
+          <Pager
+            page={data.page}
+            total={data.total}
+            limit={data.limit}
+            onChange={setPage}
+          />
         )}
       </div>
     </div>
