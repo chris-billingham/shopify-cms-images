@@ -94,7 +94,12 @@ export async function runImportImages(
         // Strip query strings if any leaked into the name
         const fileName = rawName.split('?')[0] ?? rawName;
 
-        const existing = await db('assets').where('file_name', fileName).whereNot('status', 'deleted').first();
+        const existing = await db('assets')
+          .whereNot('status', 'deleted')
+          .where((q) =>
+            q.where('shopify_image_id', String(image.id)).orWhere('file_name', fileName)
+          )
+          .first();
         if (existing) {
           skipped++;
           continue;
@@ -126,6 +131,7 @@ export async function runImportImages(
             google_drive_url: webViewLink || null,
             status: 'active',
             tags: JSON.stringify(tags),
+            shopify_image_id: String(image.id),
             version: 1,
           })
           .returning('*');
