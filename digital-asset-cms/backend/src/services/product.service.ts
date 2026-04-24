@@ -18,6 +18,7 @@ export interface UpsertProductData {
   vendor?: string | null;
   status?: string;
   shopifyTags?: string[];
+  shopifyCreatedAt?: string | null;
 }
 
 export interface UpsertVariantData {
@@ -40,6 +41,7 @@ export async function upsertProduct(
     vendor: data.vendor ?? null,
     status: data.status ?? 'active',
     shopify_tags: data.shopifyTags ?? [],
+    shopify_created_at: data.shopifyCreatedAt ?? null,
     synced_at: shopifyId !== null ? new Date() : null,
     updated_at: new Date(),
   };

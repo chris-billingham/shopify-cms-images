@@ -42,6 +42,7 @@ export async function runSyncProducts(
           category: product.product_type ?? null,
           status: product.status ?? 'active',
           shopifyTags: product.tags ? product.tags.split(', ').filter(Boolean) : [],
+          shopifyCreatedAt: product.created_at ?? null,
         });
         for (const variant of product.variants) {
           await upsertVariant(cmsProduct['id'] as string, variant.id, {
@@ -196,6 +197,7 @@ export async function runReconciliation(
           category: shopifyProduct.product_type ?? null,
           status: 'active',
           shopifyTags: shopifyProduct.tags ? shopifyProduct.tags.split(', ').filter(Boolean) : [],
+          shopifyCreatedAt: shopifyProduct.created_at ?? null,
         });
         for (const variant of shopifyProduct.variants) {
           // We need the new CMS product's id — fetch it

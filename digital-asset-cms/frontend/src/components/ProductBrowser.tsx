@@ -247,6 +247,8 @@ export function ProductBrowser() {
         case 'variants-asc':  return (a.variant_count ?? 0) - (b.variant_count ?? 0);
         case 'newest': return new Date(b.synced_at ?? 0).getTime() - new Date(a.synced_at ?? 0).getTime();
         case 'oldest': return new Date(a.synced_at ?? 0).getTime() - new Date(b.synced_at ?? 0).getTime();
+        case 'shopify-newest': return new Date(b.shopify_created_at ?? 0).getTime() - new Date(a.shopify_created_at ?? 0).getTime();
+        case 'shopify-oldest': return new Date(a.shopify_created_at ?? 0).getTime() - new Date(b.shopify_created_at ?? 0).getTime();
         default: return 0;
       }
     });
@@ -453,6 +455,8 @@ export function ProductBrowser() {
           <option value="variants-asc">Fewest variants</option>
           <option value="newest">Newest sync</option>
           <option value="oldest">Oldest sync</option>
+          <option value="shopify-newest">Newest in Shopify</option>
+          <option value="shopify-oldest">Oldest in Shopify</option>
         </select>
       </div>
 

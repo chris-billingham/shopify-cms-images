@@ -19,6 +19,7 @@ export interface ShopifyProduct {
   product_type?: string | null;
   tags?: string | null;
   status?: string | null;
+  created_at?: string | null;
   variants: ShopifyVariant[];
 }
 

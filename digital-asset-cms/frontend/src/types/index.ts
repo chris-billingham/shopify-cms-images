@@ -42,6 +42,7 @@ export interface Product {
   shopify_tags?: string[];
   variant_count: number;
   synced_at?: string;
+  shopify_created_at?: string;
 }
 
 export interface FacetValue {
