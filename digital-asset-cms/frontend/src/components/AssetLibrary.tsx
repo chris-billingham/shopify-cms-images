@@ -20,6 +20,13 @@ const SORT_OPTIONS = [
 
 const PAGE_SIZE = 50;
 
+const SORT_MAP: Record<string, { sort: string; order: string }> = {
+  newest: { sort: 'created_at', order: 'desc' },
+  oldest: { sort: 'created_at', order: 'asc' },
+  name:   { sort: 'file_name',  order: 'asc'  },
+  size:   { sort: 'file_size',  order: 'desc' },
+};
+
 async function fetchAssets(query: string, filters: ActiveFilters, sort: string, page: number): Promise<SearchResult> {
   const params = new URLSearchParams();
   if (query) params.set('q', query);
@@ -30,7 +37,11 @@ async function fetchAssets(query: string, filters: ActiveFilters, sort: string, 
       params.set(`tags[${k}]`, v);
     });
   }
-  if (sort) params.set('sort', sort);
+  const sortParams = SORT_MAP[sort];
+  if (sortParams) {
+    params.set('sort', sortParams.sort);
+    params.set('order', sortParams.order);
+  }
   params.set('page', String(page));
   params.set('limit', String(PAGE_SIZE));
   params.set('facets', 'true');

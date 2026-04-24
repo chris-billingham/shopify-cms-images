@@ -36,6 +36,7 @@ const ALLOWED_SORT_COLS: Record<string, string> = {
   file_name: 'file_name',
   created_at: 'created_at',
   relevance: 'relevance',
+  file_size: 'file_size',
 };
 
 export async function searchAssets(params: SearchParams): Promise<SearchResult> {
@@ -87,7 +88,9 @@ export async function searchAssets(params: SearchParams): Promise<SearchResult> 
         ? `file_name ${order}`
         : sortKey === 'created_at'
           ? `created_at ${order}`
-          : 'relevance DESC';
+          : sortKey === 'file_size'
+            ? `file_size ${order}`
+            : 'relevance DESC';
 
     queryBindings.push(
       params.q,        // word_similarity(?, search_text)
@@ -133,7 +136,9 @@ export async function searchAssets(params: SearchParams): Promise<SearchResult> 
     const sortKey = params.sort && ALLOWED_SORT_COLS[params.sort] && params.sort !== 'relevance'
       ? params.sort
       : 'created_at';
-    const sortClause = `m.${sortKey} ${order}`;
+    const sortClause = sortKey === 'file_size'
+      ? `a.file_size_bytes ${order}`
+      : `m.${sortKey} ${order}`;
 
     queryBindings.push(...condBindings, limit, offset);
 
