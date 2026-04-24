@@ -30,7 +30,7 @@ async function fetchProductAssets(productId: string): Promise<LinkedAsset[]> {
   return data.assets ?? [];
 }
 
-function ProductDetail({ productId }: { productId: string }) {
+function ProductDetail({ productId, shopifyCreatedAt }: { productId: string; shopifyCreatedAt?: string }) {
   const token = useAuthStore((s) => s.accessToken);
 
   const { data: variants, isLoading: variantsLoading } = useQuery({
@@ -58,6 +58,16 @@ function ProductDetail({ productId }: { productId: string }) {
 
   return (
     <div style={{ padding: '12px 16px', background: 'var(--paper-2)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Shopify metadata */}
+      {shopifyCreatedAt && (
+        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--ink-soft)' }}>
+          created in shopify:{' '}
+          <span style={{ color: 'var(--ink)' }}>
+            {new Date(shopifyCreatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </span>
+        </div>
+      )}
 
       {/* Images */}
       <div>
@@ -507,7 +517,7 @@ export function ProductBrowser() {
                 {expandedId === product.id && (
                   <tr>
                     <td colSpan={5} style={{ padding: 0, borderBottom: '1.5px solid var(--ink)' }}>
-                      <ProductDetail productId={product.id} />
+                      <ProductDetail productId={product.id} shopifyCreatedAt={product.shopify_created_at} />
                     </td>
                   </tr>
                 )}
