@@ -1,8 +1,13 @@
 import type { FastifyPluginAsync } from 'fastify';
 import fastifyRateLimit from '@fastify/rate-limit';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 import { db } from '../db/connection.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
+import { getSetting, setSetting } from '../services/settings.service.js';
+
+const TAXONOMY_KEY = 'tag_taxonomy';
+
+type Taxonomy = Record<string, string[]>;
 
 const tagsRoutes: FastifyPluginAsync = async (fastify) => {
   // Rate limit: 120 req/min per user (§5.2)
@@ -43,6 +48,38 @@ const tagsRoutes: FastifyPluginAsync = async (fastify) => {
     const values = rows.rows.map((r) => r.value);
     return reply.send({ values });
   });
+
+  // ── GET /api/tags/taxonomy — admin-defined tag key/value vocabulary ──────────
+  fastify.get('/taxonomy', { preHandler: [authenticate] }, async (_request, reply) => {
+    const raw = await getSetting(TAXONOMY_KEY);
+    const taxonomy: Taxonomy = raw ? (JSON.parse(raw) as Taxonomy) : {};
+    return reply.send({ taxonomy });
+  });
+
+  // ── PUT /api/tags/taxonomy — replace the full taxonomy (admin only) ──────────
+  fastify.put(
+    '/taxonomy',
+    { preHandler: [authenticate, requireRole('admin')] },
+    async (request, reply) => {
+      const body = request.body as { taxonomy?: unknown };
+      if (!body.taxonomy || typeof body.taxonomy !== 'object' || Array.isArray(body.taxonomy)) {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: 'taxonomy must be an object' },
+        });
+      }
+      const taxonomy = body.taxonomy as Record<string, unknown>;
+      // Validate: each value must be an array of strings
+      for (const [k, v] of Object.entries(taxonomy)) {
+        if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) {
+          return reply.status(400).send({
+            error: { code: 'VALIDATION_ERROR', message: `values for key "${k}" must be an array of strings` },
+          });
+        }
+      }
+      await setSetting(TAXONOMY_KEY, JSON.stringify(taxonomy));
+      return reply.send({ taxonomy });
+    }
+  );
 
   // ── GET /api/tags/facets — counts per key/value ────────────────────────────
   fastify.get('/facets', { preHandler: [authenticate] }, async (_request, reply) => {

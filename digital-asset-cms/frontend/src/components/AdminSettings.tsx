@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { getAccessToken } from '../stores/authStore';
@@ -853,31 +853,179 @@ function DriveTab() {
 
 // ── Tags tab ──────────────────────────────────────────────────────────────────
 
+type Taxonomy = Record<string, string[]>;
+
 function TagsTab() {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['tags', 'keys'],
+  const queryClient = useQueryClient();
+  const [newKey, setNewKey] = useState('');
+  const [newValues, setNewValues] = useState<Record<string, string>>({});
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { data: taxonomy, isLoading, isError } = useQuery({
+    queryKey: ['tags', 'taxonomy'],
     queryFn: async () => {
-      const { data } = await apiClient.get<{ keys: string[] }>('/tags/keys');
-      return data.keys;
+      const { data } = await apiClient.get<{ taxonomy: Taxonomy }>('/tags/taxonomy');
+      return data.taxonomy;
     },
   });
 
-  if (isLoading) return <p className="text-sm text-gray-400">Loading…</p>;
-  if (isError) return <p className="text-sm text-red-500">Failed to load tag keys.</p>;
+  const saveTaxonomy = useMutation({
+    mutationFn: async (next: Taxonomy) => {
+      await apiClient.put('/tags/taxonomy', { taxonomy: next });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tags', 'taxonomy'] });
+      setSaveError(null);
+      setSaveMsg('Saved.');
+      setTimeout(() => setSaveMsg(null), 2000);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })
+        ?.response?.data?.error?.message ?? 'Failed to save';
+      setSaveError(msg);
+    },
+  });
+
+  const current = taxonomy ?? {};
+
+  const addKey = () => {
+    const k = newKey.trim().toLowerCase().replace(/\s+/g, '_');
+    if (!k || k in current) return;
+    saveTaxonomy.mutate({ ...current, [k]: [] });
+    setNewKey('');
+  };
+
+  const deleteKey = (k: string) => {
+    const next = { ...current };
+    delete next[k];
+    saveTaxonomy.mutate(next);
+  };
+
+  const addValue = (k: string) => {
+    const v = (newValues[k] ?? '').trim();
+    if (!v || current[k]?.includes(v)) return;
+    saveTaxonomy.mutate({ ...current, [k]: [...(current[k] ?? []), v] });
+    setNewValues((prev) => ({ ...prev, [k]: '' }));
+  };
+
+  const deleteValue = (k: string, v: string) => {
+    saveTaxonomy.mutate({ ...current, [k]: (current[k] ?? []).filter((x) => x !== v) });
+  };
+
+  const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+
+  const sectionLabel = (text: string) => (
+    <div style={{ ...mono, fontSize: 11, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+      {text}
+    </div>
+  );
+
+  if (isLoading) return <div style={{ ...mono, fontSize: 13, color: 'var(--ink-soft)' }}>Loading…</div>;
+  if (isError)   return <div style={{ ...mono, fontSize: 13, color: 'var(--accent)' }}>Failed to load taxonomy.</div>;
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-gray-400">Tag keys are derived from asset metadata. Add tags to assets to see keys here.</p>
-      <ul className="space-y-1">
-        {(data ?? []).map((key) => (
-          <li key={key} className="text-sm">
-            <span className="font-medium">{key}</span>
-          </li>
+    <div style={{ fontSize: 13 }}>
+      {/* Add key */}
+      <div style={{ marginBottom: 20 }}>
+        {sectionLabel('add tag key')}
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input
+            type="text"
+            placeholder="e.g. colour, season, usage"
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addKey()}
+            style={{
+              flex: 1, border: '1.5px solid var(--ink)', ...mono,
+              fontSize: 12, padding: '3px 8px', background: '#fff',
+            }}
+          />
+          <button
+            className="btn-sketch sm primary"
+            onClick={addKey}
+            disabled={!newKey.trim() || saveTaxonomy.isPending}
+          >
+            Add key
+          </button>
+        </div>
+        {saveError && <div style={{ ...mono, fontSize: 12, color: 'var(--accent)', marginTop: 6 }}>{saveError}</div>}
+        {saveMsg  && <div style={{ ...mono, fontSize: 12, color: 'var(--green)',  marginTop: 6 }}>{saveMsg}</div>}
+      </div>
+
+      {/* Key list */}
+      {sectionLabel('defined keys')}
+      {Object.keys(current).length === 0 && (
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
+          No tag keys defined yet. Add one above.
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {Object.entries(current).map(([k, vals]) => (
+          <div key={k} style={{ border: '1.5px solid var(--ink)', boxShadow: '3px 3px 0 var(--shadow)' }}>
+            {/* Key header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '6px 10px', borderBottom: '1.5px solid var(--ink)',
+              background: 'var(--paper-2)',
+            }}>
+              <span style={{ ...mono, fontSize: 12, fontWeight: 600 }}>{k}</span>
+              <button
+                className="btn-sketch sm ghost"
+                style={{ color: 'var(--accent)', fontSize: 11 }}
+                onClick={() => deleteKey(k)}
+                disabled={saveTaxonomy.isPending}
+              >
+                remove key
+              </button>
+            </div>
+
+            {/* Values */}
+            <div style={{ padding: '8px 10px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: vals.length ? 8 : 0 }}>
+                {vals.map((v) => (
+                  <span key={v} className="chip">
+                    {v}
+                    <span
+                      className="chip-x"
+                      role="button"
+                      aria-label={`Remove value ${v}`}
+                      onClick={() => deleteValue(k, v)}
+                    >×</span>
+                  </span>
+                ))}
+                {vals.length === 0 && (
+                  <span style={{ ...mono, fontSize: 11, color: 'var(--ink-soft)' }}>
+                    free-form — add values below to restrict
+                  </span>
+                )}
+              </div>
+
+              {/* Add value */}
+              <div style={{ display: 'flex', gap: 5 }}>
+                <input
+                  type="text"
+                  placeholder="add allowed value…"
+                  value={newValues[k] ?? ''}
+                  onChange={(e) => setNewValues((prev) => ({ ...prev, [k]: e.target.value }))}
+                  onKeyDown={(e) => e.key === 'Enter' && addValue(k)}
+                  style={{
+                    flex: 1, border: '1.5px solid var(--ink)', ...mono,
+                    fontSize: 11, padding: '2px 6px', background: '#fff',
+                  }}
+                />
+                <button
+                  className="btn-sketch sm"
+                  onClick={() => addValue(k)}
+                  disabled={!(newValues[k] ?? '').trim() || saveTaxonomy.isPending}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
         ))}
-        {data?.length === 0 && (
-          <li className="text-sm text-gray-400">No tag keys yet.</li>
-        )}
-      </ul>
+      </div>
     </div>
   );
 }

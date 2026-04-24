@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Asset } from '../types';
 import { apiClient } from '../api/client';
@@ -12,7 +12,7 @@ interface AssetDetailPanelProps {
 
 interface TagUpdatePayload {
   tags: Record<string, string>;
-  updated_at: string;
+  updatedAt: string;
 }
 
 interface LinkedProduct {
@@ -35,9 +35,21 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
   const [productSearch, setProductSearch] = useState('');
   const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'done' | 'error'>('idle');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [newTagKey, setNewTagKey] = useState('');
+  const [newTagValue, setNewTagValue] = useState('');
+
   const queryClient = useQueryClient();
   const { canEditTags, canDelete, canLinkProducts, canPushToShopify } = usePermissions();
   const token = useAuthStore((s) => s.accessToken);
+
+  const { data: taxonomy } = useQuery({
+    queryKey: ['tags', 'taxonomy'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ taxonomy: Record<string, string[]> }>('/tags/taxonomy');
+      return data.taxonomy;
+    },
+    enabled: canEditTags,
+  });
   const previewSrc = token ? `/api/assets/${asset.id}/preview?token=${encodeURIComponent(token)}` : null;
 
   const { data: linkedData, refetch: refetchLinks } = useQuery({
@@ -129,7 +141,16 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
 
   const handleTagRemove = (key: string) => {
     const { [key]: _removed, ...newTags } = asset.tags;
-    patchAsset.mutate({ tags: newTags, updated_at: asset.updated_at });
+    patchAsset.mutate({ tags: newTags, updatedAt: asset.updated_at });
+  };
+
+  const handleTagAdd = () => {
+    const key = newTagKey.trim();
+    const value = newTagValue.trim();
+    if (!key || !value) return;
+    patchAsset.mutate({ tags: { ...asset.tags, [key]: value }, updatedAt: asset.updated_at });
+    setNewTagKey('');
+    setNewTagValue('');
   };
 
   const handleRefresh = () => {
@@ -272,6 +293,71 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
             <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No tags</span>
           )}
         </div>
+        {canEditTags && (() => {
+          const taxKeys = taxonomy ? Object.keys(taxonomy) : [];
+          const allowedValues = taxonomy && newTagKey ? (taxonomy[newTagKey] ?? []) : [];
+          const inputStyle: React.CSSProperties = {
+            flex: 1,
+            border: '1.5px solid var(--ink)',
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 12,
+            padding: '3px 6px',
+            background: '#fff',
+          };
+          return (
+            <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+              {taxKeys.length > 0 ? (
+                <select
+                  value={newTagKey}
+                  onChange={(e) => { setNewTagKey(e.target.value); setNewTagValue(''); }}
+                  style={inputStyle}
+                >
+                  <option value="">key…</option>
+                  {taxKeys.map((k) => (
+                    <option key={k} value={k}>{k}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="key"
+                  value={newTagKey}
+                  onChange={(e) => setNewTagKey(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleTagAdd()}
+                  style={inputStyle}
+                />
+              )}
+              {allowedValues.length > 0 ? (
+                <select
+                  value={newTagValue}
+                  onChange={(e) => setNewTagValue(e.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="">value…</option>
+                  {allowedValues.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="value"
+                  value={newTagValue}
+                  onChange={(e) => setNewTagValue(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleTagAdd()}
+                  style={inputStyle}
+                />
+              )}
+              <button
+                className="btn-sketch sm"
+                onClick={handleTagAdd}
+                disabled={!newTagKey.trim() || !newTagValue.trim() || patchAsset.isPending}
+              >
+                +
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Linked products */}
         <div className="section-h">Linked products</div>

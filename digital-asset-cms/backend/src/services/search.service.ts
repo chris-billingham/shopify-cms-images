@@ -52,23 +52,23 @@ export async function searchAssets(params: SearchParams): Promise<SearchResult> 
   const condBindings: unknown[] = [];
 
   if (params.type) {
-    conditions.push('asset_type = ?');
+    conditions.push('m.asset_type = ?');
     condBindings.push(params.type);
   }
   if (params.status) {
-    conditions.push('status = ?');
+    conditions.push('m.status = ?');
     condBindings.push(params.status);
   }
   if (params.sku) {
-    conditions.push('COALESCE(? = ANY(skus), false)');
+    conditions.push('COALESCE(? = ANY(m.skus), false)');
     condBindings.push(params.sku);
   }
   if (params.category) {
-    conditions.push('tags @> ?::jsonb');
+    conditions.push('m.tags @> ?::jsonb');
     condBindings.push(JSON.stringify({ category: params.category }));
   }
   for (const [key, value] of Object.entries(tags)) {
-    conditions.push('tags @> ?::jsonb');
+    conditions.push('m.tags @> ?::jsonb');
     condBindings.push(JSON.stringify({ [key]: value }));
   }
   if (params.product_status) {
