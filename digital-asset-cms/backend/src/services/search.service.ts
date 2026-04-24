@@ -217,6 +217,8 @@ async function computeFacets(
   }
 
   const whereStr = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+  // For the UNION ALL query each branch needs its own WHERE clause with extra conditions appended
+  const andStr = conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : '';
 
   const [typeResult, productStatusResult, tagResult] = await Promise.all([
     db.raw<{ rows: Array<{ asset_type: string; count: number }> }>(
@@ -230,14 +232,14 @@ async function computeFacets(
     db.raw<{ rows: Array<{ product_status: string; count: number }> }>(
       `SELECT 'unlinked' AS product_status, COUNT(DISTINCT m.asset_id)::int AS count
        FROM asset_search_mv m
-       ${whereStr}
+       WHERE TRUE ${andStr}
        AND NOT EXISTS (SELECT 1 FROM asset_products ap WHERE ap.asset_id = m.asset_id)
 
        UNION ALL
 
        SELECT 'linked-unpushed' AS product_status, COUNT(DISTINCT m.asset_id)::int AS count
        FROM asset_search_mv m
-       ${whereStr}
+       WHERE TRUE ${andStr}
        AND EXISTS (
          SELECT 1 FROM asset_products ap
          JOIN products p ON p.id = ap.product_id
@@ -250,7 +252,7 @@ async function computeFacets(
        FROM asset_search_mv m
        JOIN asset_products ap ON ap.asset_id = m.asset_id
        JOIN products p ON p.id = ap.product_id
-       ${whereStr.replace(/\bm\.asset_id\b/g, 'm.asset_id')}
+       WHERE TRUE ${andStr}
        AND p.shopify_id IS NOT NULL
        GROUP BY p.status`,
       [...bindings, ...bindings, ...bindings],
