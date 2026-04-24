@@ -119,9 +119,13 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
     '/import-images',
     { preHandler: [authenticate, requireRole('admin')] },
     async (request, reply) => {
+      const body = request.body as { statuses?: string[] };
+      const statuses = Array.isArray(body?.statuses) && body.statuses.length > 0
+        ? body.statuses
+        : ['active'];
       const jobId = await submitImportImages(request.user!.user_id);
       const creds = await getActiveShopifyCredentials();
-      void runImportImages(jobId, createShopifyService(creds));
+      void runImportImages(jobId, createShopifyService(creds), undefined, statuses);
       return reply.status(202).send({ job_id: jobId });
     }
   );

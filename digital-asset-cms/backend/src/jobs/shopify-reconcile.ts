@@ -68,7 +68,8 @@ export async function runSyncProducts(
 export async function runImportImages(
   jobId: string,
   shopify: ShopifyService = defaultShopifyService,
-  drive: DriveService = defaultDriveService
+  drive: DriveService = defaultDriveService,
+  statuses: string[] = ['active']
 ): Promise<void> {
   await setJobRunning(jobId);
   try {
@@ -76,7 +77,7 @@ export async function runImportImages(
 
     const cmsProducts = await db('products')
       .whereNotNull('shopify_id')
-      .where('status', 'active')
+      .whereIn('status', statuses)
       .select('id', 'shopify_id');
 
     let imported = 0;

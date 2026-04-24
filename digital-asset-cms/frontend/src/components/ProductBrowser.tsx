@@ -199,6 +199,8 @@ export function ProductBrowser() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
+  const [showImportOptions, setShowImportOptions] = useState(false);
+  const [importStatuses, setImportStatuses] = useState<string[]>(['active']);
 
   const { data: products, isLoading, isError } = useQuery({
     queryKey: ['products'],
@@ -259,11 +261,12 @@ export function ProductBrowser() {
   });
 
   const importMutation = useMutation({
-    mutationFn: async () => {
-      const { data } = await apiClient.post<{ job_id: string }>('/shopify/import-images', {});
+    mutationFn: async (statuses: string[]) => {
+      const { data } = await apiClient.post<{ job_id: string }>('/shopify/import-images', { statuses });
       return data;
     },
     onSuccess: (data) => {
+      setShowImportOptions(false);
       setActiveJob({ id: data.job_id, type: 'import', progress: 0, status: 'running' });
     },
   });
@@ -283,14 +286,65 @@ export function ProductBrowser() {
           >
             {syncMutation.isPending ? 'Starting…' : 'Sync Products'}
           </button>
-          <button
-            onClick={() => importMutation.mutate()}
-            disabled={importMutation.isPending || jobRunning}
-            aria-label="Import Images"
-            className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200 disabled:opacity-50"
-          >
-            {importMutation.isPending ? 'Starting…' : 'Import Images'}
-          </button>
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowImportOptions((v) => !v)}
+              disabled={importMutation.isPending || jobRunning}
+              aria-label="Import Images"
+              className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200 disabled:opacity-50"
+            >
+              {importMutation.isPending ? 'Starting…' : 'Import Images ▾'}
+            </button>
+            {showImportOptions && (
+              <div style={{
+                position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 10,
+                border: '1.5px solid var(--ink)', background: 'var(--paper)', padding: '10px 12px',
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 12, minWidth: 180,
+                boxShadow: '3px 3px 0 var(--shadow)',
+              }}>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                  import from products
+                </div>
+                {(['active', 'draft', 'archived'] as const).map((s) => (
+                  <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={importStatuses.includes(s)}
+                      onChange={(e) => setImportStatuses((prev) =>
+                        e.target.checked ? [...prev, s] : prev.filter((x) => x !== s)
+                      )}
+                      style={{ accentColor: 'var(--ink)' }}
+                    />
+                    {s}
+                  </label>
+                ))}
+                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                  <button
+                    onClick={() => importMutation.mutate(importStatuses)}
+                    disabled={importStatuses.length === 0 || importMutation.isPending}
+                    style={{
+                      flex: 1, padding: '4px 8px', fontSize: 11,
+                      background: 'var(--ink)', color: 'var(--paper)',
+                      border: 'none', cursor: importStatuses.length === 0 ? 'not-allowed' : 'pointer',
+                      fontFamily: "'JetBrains Mono', monospace", opacity: importStatuses.length === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    start import
+                  </button>
+                  <button
+                    onClick={() => setShowImportOptions(false)}
+                    style={{
+                      padding: '4px 8px', fontSize: 11,
+                      background: 'none', border: '1px solid var(--ink-soft)',
+                      cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  >
+                    cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
