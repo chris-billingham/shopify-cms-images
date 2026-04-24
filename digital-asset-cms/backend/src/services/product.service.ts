@@ -50,7 +50,7 @@ export async function upsertProduct(
     const [row] = await db('products')
       .insert(insertData)
       .onConflict('shopify_id')
-      .merge(['title', 'category', 'vendor', 'status', 'shopify_tags', 'synced_at', 'updated_at'])
+      .merge(['title', 'category', 'vendor', 'status', 'shopify_tags', 'shopify_created_at', 'synced_at', 'updated_at'])
       .returning('*');
     return row as Record<string, unknown>;
   }
