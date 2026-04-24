@@ -31,7 +31,7 @@ async function fetchAssets(query: string, filters: ActiveFilters, sort: string, 
   const params = new URLSearchParams();
   if (query) params.set('q', query);
   if (filters.type) params.set('type', filters.type);
-  if (filters.status) params.set('status', filters.status);
+  if (filters.product_status) params.set('product_status', filters.product_status);
   if (filters.tags) {
     Object.entries(filters.tags).forEach(([k, v]) => {
       params.set(`tags[${k}]`, v);

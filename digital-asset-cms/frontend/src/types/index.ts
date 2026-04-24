@@ -51,7 +51,7 @@ export interface FacetValue {
 
 export interface Facets {
   asset_type?: FacetValue[];
-  status?: FacetValue[];
+  product_status?: FacetValue[];
   tags?: Record<string, FacetValue[]>;
 }
 
@@ -65,7 +65,7 @@ export interface SearchResult {
 
 export interface ActiveFilters {
   type?: string;
-  status?: string;
+  product_status?: string;
   tags?: Record<string, string>;
 }
 

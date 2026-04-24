@@ -13,6 +13,16 @@ const typeIcons: Record<string, string> = {
   document: '▦',
 };
 
+const PRODUCT_STATUS_ORDER = ['unlinked', 'linked-unpushed', 'active', 'draft', 'archived'];
+
+const PRODUCT_STATUS_LABELS: Record<string, string> = {
+  'unlinked': 'unlinked',
+  'linked-unpushed': 'linked (unpushed)',
+  'active': 'active',
+  'draft': 'draft',
+  'archived': 'archived',
+};
+
 export function FacetSidebar({ facets, activeFilters, onFilterChange }: FacetSidebarProps) {
   const handleTypeClick = (value: string) => {
     if (activeFilters.type === value) {
@@ -23,12 +33,12 @@ export function FacetSidebar({ facets, activeFilters, onFilterChange }: FacetSid
     }
   };
 
-  const handleStatusClick = (value: string) => {
-    if (activeFilters.status === value) {
-      const { status: _status, ...rest } = activeFilters;
+  const handleProductStatusClick = (value: string) => {
+    if (activeFilters.product_status === value) {
+      const { product_status: _ps, ...rest } = activeFilters;
       onFilterChange(rest);
     } else {
-      onFilterChange({ ...activeFilters, status: value });
+      onFilterChange({ ...activeFilters, product_status: value });
     }
   };
 
@@ -44,7 +54,7 @@ export function FacetSidebar({ facets, activeFilters, onFilterChange }: FacetSid
 
   const hasFilters =
     activeFilters.type ||
-    activeFilters.status ||
+    activeFilters.product_status ||
     Object.keys(activeFilters.tags ?? {}).length > 0;
 
   return (
@@ -67,21 +77,25 @@ export function FacetSidebar({ facets, activeFilters, onFilterChange }: FacetSid
         </>
       )}
 
-      {/* Status facets */}
-      {facets.status && facets.status.length > 0 && (
+      {/* Product status facets */}
+      {facets.product_status && facets.product_status.length > 0 && (
         <>
-          <div className="side-h">Status</div>
-          {facets.status.map(({ value, count }) => (
-            <button
-              key={value}
-              onClick={() => handleStatusClick(value)}
-              className={`facet-item ${activeFilters.status === value ? 'active' : ''}`}
-              aria-pressed={activeFilters.status === value}
-            >
-              <span>{value}</span>
-              <span className="facet-count">{count.toLocaleString()}</span>
-            </button>
-          ))}
+          <div className="side-h">Product Status</div>
+          {PRODUCT_STATUS_ORDER
+            .map((ps) => facets.product_status!.find((f) => f.value === ps))
+            .filter((f): f is { value: string; count: number } => f !== undefined)
+            .map(({ value, count }) => (
+              <button
+                key={value}
+                onClick={() => handleProductStatusClick(value)}
+                className={`facet-item ${activeFilters.product_status === value ? 'active' : ''}`}
+                aria-pressed={activeFilters.product_status === value}
+              >
+                <span>{PRODUCT_STATUS_LABELS[value] ?? value}</span>
+                <span className="facet-count">{count.toLocaleString()}</span>
+              </button>
+            ))
+          }
         </>
       )}
 

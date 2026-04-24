@@ -48,6 +48,7 @@ const searchRoutes: FastifyPluginAsync = async (fastify) => {
       category: getString('category'),
       type: getString('type'),
       status: getString('status'),
+      product_status: getString('product_status'),
       sort: getString('sort'),
       order: getString('order'),
       page: rawQuery['page'] ? parseInt(rawQuery['page'] as string, 10) : undefined,

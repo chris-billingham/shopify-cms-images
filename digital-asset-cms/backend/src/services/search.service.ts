@@ -7,6 +7,7 @@ export interface SearchParams {
   category?: string;
   type?: string;
   status?: string;
+  product_status?: string;
   tags?: Record<string, string>;
   page?: number;
   limit?: number;
@@ -27,7 +28,7 @@ export interface SearchResult {
   limit: number;
   facets?: {
     asset_type: FacetValue[];
-    status: FacetValue[];
+    product_status: FacetValue[];
     tags: Record<string, FacetValue[]>;
   };
 }
@@ -69,6 +70,20 @@ export async function searchAssets(params: SearchParams): Promise<SearchResult> 
   for (const [key, value] of Object.entries(tags)) {
     conditions.push('tags @> ?::jsonb');
     condBindings.push(JSON.stringify({ [key]: value }));
+  }
+  if (params.product_status) {
+    if (params.product_status === 'unlinked') {
+      conditions.push('NOT EXISTS (SELECT 1 FROM asset_products ap WHERE ap.asset_id = m.asset_id)');
+    } else if (params.product_status === 'linked-unpushed') {
+      conditions.push(
+        'EXISTS (SELECT 1 FROM asset_products ap JOIN products p ON p.id = ap.product_id WHERE ap.asset_id = m.asset_id AND p.shopify_id IS NULL)'
+      );
+    } else {
+      conditions.push(
+        'EXISTS (SELECT 1 FROM asset_products ap JOIN products p ON p.id = ap.product_id WHERE ap.asset_id = m.asset_id AND p.shopify_id IS NOT NULL AND p.status = ?)'
+      );
+      condBindings.push(params.product_status);
+    }
   }
 
   const whereStr = conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : '';
@@ -203,7 +218,7 @@ async function computeFacets(
 
   const whereStr = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
-  const [typeResult, statusResult, tagResult] = await Promise.all([
+  const [typeResult, productStatusResult, tagResult] = await Promise.all([
     db.raw<{ rows: Array<{ asset_type: string; count: number }> }>(
       `SELECT m.asset_type, COUNT(DISTINCT m.asset_id)::int AS count
        FROM asset_search_mv m
@@ -212,13 +227,33 @@ async function computeFacets(
        ORDER BY count DESC`,
       bindings,
     ),
-    db.raw<{ rows: Array<{ status: string; count: number }> }>(
-      `SELECT m.status, COUNT(DISTINCT m.asset_id)::int AS count
+    db.raw<{ rows: Array<{ product_status: string; count: number }> }>(
+      `SELECT 'unlinked' AS product_status, COUNT(DISTINCT m.asset_id)::int AS count
        FROM asset_search_mv m
        ${whereStr}
-       GROUP BY m.status
-       ORDER BY count DESC`,
-      bindings,
+       AND NOT EXISTS (SELECT 1 FROM asset_products ap WHERE ap.asset_id = m.asset_id)
+
+       UNION ALL
+
+       SELECT 'linked-unpushed' AS product_status, COUNT(DISTINCT m.asset_id)::int AS count
+       FROM asset_search_mv m
+       ${whereStr}
+       AND EXISTS (
+         SELECT 1 FROM asset_products ap
+         JOIN products p ON p.id = ap.product_id
+         WHERE ap.asset_id = m.asset_id AND p.shopify_id IS NULL
+       )
+
+       UNION ALL
+
+       SELECT p.status AS product_status, COUNT(DISTINCT m.asset_id)::int AS count
+       FROM asset_search_mv m
+       JOIN asset_products ap ON ap.asset_id = m.asset_id
+       JOIN products p ON p.id = ap.product_id
+       ${whereStr.replace(/\bm\.asset_id\b/g, 'm.asset_id')}
+       AND p.shopify_id IS NOT NULL
+       GROUP BY p.status`,
+      [...bindings, ...bindings, ...bindings],
     ),
     db.raw<{ rows: Array<{ key: string; value: string; count: number }> }>(
       `SELECT kv.key, kv.value, COUNT(DISTINCT m.asset_id)::int AS count
@@ -235,10 +270,9 @@ async function computeFacets(
     count: Number(r.count),
   }));
 
-  const statusFacets: FacetValue[] = statusResult.rows.map((r) => ({
-    value: r.status,
-    count: Number(r.count),
-  }));
+  const productStatusFacets: FacetValue[] = productStatusResult.rows
+    .filter((r) => Number(r.count) > 0)
+    .map((r) => ({ value: r.product_status, count: Number(r.count) }));
 
   const tagFacets: Record<string, FacetValue[]> = {};
   for (const row of tagResult.rows) {
@@ -246,5 +280,5 @@ async function computeFacets(
     tagFacets[row.key].push({ value: row.value, count: Number(row.count) });
   }
 
-  return { asset_type: assetTypeFacets, status: statusFacets, tags: tagFacets };
+  return { asset_type: assetTypeFacets, product_status: productStatusFacets, tags: tagFacets };
 }
