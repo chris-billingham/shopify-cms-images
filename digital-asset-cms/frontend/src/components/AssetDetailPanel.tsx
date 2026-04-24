@@ -42,6 +42,16 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
   const { canEditTags, canDelete, canLinkProducts, canPushToShopify } = usePermissions();
   const token = useAuthStore((s) => s.accessToken);
 
+  const { data: liveAssetData } = useQuery({
+    queryKey: ['asset', asset.id],
+    queryFn: async () => {
+      const { data } = await apiClient.get<Asset>(`/assets/${asset.id}`);
+      return data;
+    },
+    initialData: asset,
+  });
+  const liveAsset = liveAssetData ?? asset;
+
   const { data: taxonomy } = useQuery({
     queryKey: ['tags', 'taxonomy'],
     queryFn: async () => {
@@ -140,15 +150,15 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
   };
 
   const handleTagRemove = (key: string) => {
-    const { [key]: _removed, ...newTags } = asset.tags;
-    patchAsset.mutate({ tags: newTags, updatedAt: asset.updated_at });
+    const { [key]: _removed, ...newTags } = liveAsset.tags;
+    patchAsset.mutate({ tags: newTags, updatedAt: liveAsset.updated_at });
   };
 
   const handleTagAdd = () => {
     const key = newTagKey.trim();
     const value = newTagValue.trim();
     if (!key || !value) return;
-    patchAsset.mutate({ tags: { ...asset.tags, [key]: value }, updatedAt: asset.updated_at });
+    patchAsset.mutate({ tags: { ...liveAsset.tags, [key]: value }, updatedAt: liveAsset.updated_at });
     setNewTagKey('');
     setNewTagValue('');
   };
@@ -274,7 +284,7 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
         {/* Tags */}
         <div className="section-h">Tags</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '8px 0' }}>
-          {Object.entries(asset.tags).map(([key, value]) => (
+          {Object.entries(liveAsset.tags).map(([key, value]) => (
             <span key={key} className="chip">
               {key}: {value}
               {canEditTags && (
@@ -289,7 +299,7 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
               )}
             </span>
           ))}
-          {Object.keys(asset.tags).length === 0 && (
+          {Object.keys(liveAsset.tags).length === 0 && (
             <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No tags</span>
           )}
         </div>
