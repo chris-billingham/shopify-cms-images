@@ -203,6 +203,7 @@ export function ProductBrowser() {
   const [vendorFilter, setVendorFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [sort, setSort] = useState('title-asc');
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
   const [showImportOptions, setShowImportOptions] = useState(false);
   const [importStatuses, setImportStatuses] = useState<string[]>(['active']);
@@ -230,14 +231,26 @@ export function ProductBrowser() {
   const filtered = useMemo(() => {
     if (!products) return [];
     const q = search.toLowerCase();
-    return products.filter((p) => {
+    const list = products.filter((p) => {
       if (q && !p.title.toLowerCase().includes(q)) return false;
       if (vendorFilter && p.vendor !== vendorFilter) return false;
       if (categoryFilter && p.category !== categoryFilter) return false;
       if (statusFilter && p.status !== statusFilter) return false;
       return true;
     });
-  }, [products, search, vendorFilter, categoryFilter, statusFilter]);
+    return [...list].sort((a, b) => {
+      switch (sort) {
+        case 'title-asc':  return a.title.localeCompare(b.title);
+        case 'title-desc': return b.title.localeCompare(a.title);
+        case 'vendor':     return (a.vendor ?? '').localeCompare(b.vendor ?? '');
+        case 'variants-desc': return (b.variant_count ?? 0) - (a.variant_count ?? 0);
+        case 'variants-asc':  return (a.variant_count ?? 0) - (b.variant_count ?? 0);
+        case 'newest': return new Date(b.synced_at ?? 0).getTime() - new Date(a.synced_at ?? 0).getTime();
+        case 'oldest': return new Date(a.synced_at ?? 0).getTime() - new Date(b.synced_at ?? 0).getTime();
+        default: return 0;
+      }
+    });
+  }, [products, search, vendorFilter, categoryFilter, statusFilter, sort]);
 
   useWebSocket((msg: WebSocketMessage) => {
     if (msg.type !== 'job_progress') return;
@@ -427,6 +440,20 @@ export function ProductBrowser() {
             {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         )}
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm bg-white"
+          aria-label="Sort products"
+        >
+          <option value="title-asc">Title A–Z</option>
+          <option value="title-desc">Title Z–A</option>
+          <option value="vendor">Vendor A–Z</option>
+          <option value="variants-desc">Most variants</option>
+          <option value="variants-asc">Fewest variants</option>
+          <option value="newest">Newest sync</option>
+          <option value="oldest">Oldest sync</option>
+        </select>
       </div>
 
       {isLoading && <p role="status" className="text-gray-500 text-sm">Loading products…</p>}
