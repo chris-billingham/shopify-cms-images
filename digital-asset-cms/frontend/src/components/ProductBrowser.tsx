@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Product, ProductVariant, WebSocketMessage, JobProgressPayload } from '../types';
 import { apiClient } from '../api/client';
@@ -23,6 +23,7 @@ interface LinkedAsset {
   thumbnail_url: string | null;
   role: string;
   sort_order: number;
+  shopify_image_id: string | null;
 }
 
 async function fetchProductAssets(productId: string): Promise<LinkedAsset[]> {
@@ -32,6 +33,9 @@ async function fetchProductAssets(productId: string): Promise<LinkedAsset[]> {
 
 function ProductDetail({ productId, shopifyCreatedAt }: { productId: string; shopifyCreatedAt?: string }) {
   const token = useAuthStore((s) => s.accessToken);
+  const queryClient = useQueryClient();
+  const dragIndex = useRef<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const { data: variants, isLoading: variantsLoading } = useQuery({
     queryKey: ['products', productId, 'variants'],
@@ -41,6 +45,13 @@ function ProductDetail({ productId, shopifyCreatedAt }: { productId: string; sho
   const { data: assets, isLoading: assetsLoading } = useQuery({
     queryKey: ['products', productId, 'assets'],
     queryFn: () => fetchProductAssets(productId),
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (order: string[]) => {
+      await apiClient.post(`/products/${productId}/assets/reorder`, { order });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products', productId, 'assets'] }),
   });
 
   const sectionLabel = (text: string) => (
@@ -78,7 +89,7 @@ function ProductDetail({ productId, shopifyCreatedAt }: { productId: string; sho
           <div style={{ fontSize: 12, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>No images linked.</div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {assets.map((asset) => {
+            {assets.map((asset, index) => {
               const t = token ? encodeURIComponent(token) : null;
               const fallbackSrc = asset.asset_type === 'image' && t
                 ? `/api/assets/${asset.asset_id}/preview?token=${t}`
@@ -86,17 +97,39 @@ function ProductDetail({ productId, shopifyCreatedAt }: { productId: string; sho
               const imgSrc = asset.asset_type === 'image' && t
                 ? (asset.thumbnail_url ? `${asset.thumbnail_url}?token=${t}` : fallbackSrc)
                 : null;
+              const isDragOver = dragOverIndex === index;
               return (
                 <div
                   key={asset.link_id}
                   title={asset.file_name}
+                  draggable
+                  onDragStart={() => { dragIndex.current = index; }}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverIndex(index); }}
+                  onDragLeave={() => setDragOverIndex(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const from = dragIndex.current;
+                    if (from === null || from === index) { setDragOverIndex(null); return; }
+                    const reordered = [...assets];
+                    const [moved] = reordered.splice(from, 1);
+                    reordered.splice(index, 0, moved);
+                    // Optimistic update
+                    queryClient.setQueryData(['products', productId, 'assets'], reordered);
+                    reorderMutation.mutate(reordered.map((a) => a.link_id));
+                    dragIndex.current = null;
+                    setDragOverIndex(null);
+                  }}
+                  onDragEnd={() => { dragIndex.current = null; setDragOverIndex(null); }}
                   style={{
                     width: 72, height: 72,
-                    border: '1.5px solid var(--ink)',
+                    border: isDragOver ? '2px dashed var(--accent)' : '1.5px solid var(--ink)',
                     background: 'var(--paper)',
                     overflow: 'hidden',
                     flexShrink: 0,
                     position: 'relative',
+                    cursor: 'grab',
+                    opacity: reorderMutation.isPending ? 0.7 : 1,
+                    transition: 'border 0.1s, opacity 0.1s',
                   }}
                 >
                   {imgSrc ? (
@@ -105,7 +138,7 @@ function ProductDetail({ productId, shopifyCreatedAt }: { productId: string; sho
                       alt={asset.file_name}
                       loading="lazy"
                       onError={(e) => { if (fallbackSrc && e.currentTarget.src !== fallbackSrc) e.currentTarget.src = fallbackSrc; }}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
                     />
                   ) : (
                     <div style={{
@@ -127,6 +160,14 @@ function ProductDetail({ productId, shopifyCreatedAt }: { productId: string; sho
                       {asset.role}
                     </span>
                   )}
+                  <span style={{
+                    position: 'absolute', top: 2, right: 2,
+                    fontSize: 8, padding: '1px 3px',
+                    background: 'rgba(0,0,0,0.45)', color: '#fff',
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}>
+                    {index + 1}
+                  </span>
                 </div>
               );
             })}

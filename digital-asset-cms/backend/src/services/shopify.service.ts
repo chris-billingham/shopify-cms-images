@@ -169,6 +169,18 @@ export function createShopifyService(options?: {
     return data.image;
   }
 
+  async function updateImagePosition(
+    shopifyProductId: string | number,
+    shopifyImageId: string | number,
+    position: number
+  ): Promise<void> {
+    const response = await request(`/products/${shopifyProductId}/images/${shopifyImageId}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ image: { id: Number(shopifyImageId), position } }),
+    });
+    if (!response.ok) throw new ShopifyApiError(response.status, `updateImagePosition failed: ${response.status}`);
+  }
+
   function verifyWebhook(rawBody: Buffer, hmacHeader: string): boolean {
     if (!hmacHeader) return false;
     const digest = crypto.createHmac('sha256', webhookSecret).update(rawBody).digest('base64');
@@ -179,7 +191,7 @@ export function createShopifyService(options?: {
     }
   }
 
-  return { fetchProducts, fetchProductImages, fetchImageStream, pushImage, verifyWebhook };
+  return { fetchProducts, fetchProductImages, fetchImageStream, pushImage, updateImagePosition, verifyWebhook };
 }
 
 export type ShopifyService = ReturnType<typeof createShopifyService>;

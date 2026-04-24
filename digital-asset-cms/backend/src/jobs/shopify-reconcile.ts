@@ -101,6 +101,10 @@ export async function runImportImages(
           )
           .first();
         if (existing) {
+          // Backfill shopify_image_id if it was missing (imported before this column existed)
+          if (!existing.shopify_image_id) {
+            await db('assets').where('id', existing.id).update({ shopify_image_id: String(image.id) });
+          }
           skipped++;
           continue;
         }

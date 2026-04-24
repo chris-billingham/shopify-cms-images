@@ -16,6 +16,7 @@ import {
   DuplicateLinkError,
   LinkNotFoundError,
 } from '../services/link.service.js';
+import { shopifyService } from '../services/shopify.service.js';
 
 const productsRoutes: FastifyPluginAsync = async (fastify) => {
   // Rate limit: 120 req/min per user (§5.2)
@@ -77,6 +78,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         'a.thumbnail_url',
         'a.mime_type',
         'a.file_size_bytes as file_size',
+        'a.shopify_image_id',
       );
     return reply.send({ assets });
   });
@@ -113,6 +115,49 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         }
         throw err;
       }
+    }
+  );
+
+  // ── POST /api/products/:id/assets/reorder ─────────────────────────────────
+  fastify.post(
+    '/:id/assets/reorder',
+    { preHandler: [authenticate, requireRole('editor', 'admin')] },
+    async (request, reply) => {
+      const { id: productId } = request.params as { id: string };
+      const body = request.body as { order: string[] };
+
+      if (!Array.isArray(body.order) || body.order.length === 0) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'order must be a non-empty array of link IDs' } });
+      }
+
+      // Update sort_order in DB (1-based positions)
+      await Promise.all(
+        body.order.map((linkId, index) =>
+          db('asset_products').where('id', linkId).update({ sort_order: index + 1 })
+        )
+      );
+
+      // Sync positions to Shopify if this product has a shopify_id
+      const product = await db('products').where('id', productId).first();
+      if (product?.shopify_id) {
+        const links = await db('asset_products as ap')
+          .join('assets as a', 'ap.asset_id', 'a.id')
+          .whereIn('ap.id', body.order)
+          .select('ap.id as link_id', 'a.shopify_image_id');
+
+        const imageIdByLink = new Map(
+          links.map((l) => [l.link_id as string, l.shopify_image_id as string | null])
+        );
+
+        for (let i = 0; i < body.order.length; i++) {
+          const shopifyImageId = imageIdByLink.get(body.order[i]);
+          if (shopifyImageId) {
+            await shopifyService.updateImagePosition(product.shopify_id, shopifyImageId, i + 1);
+          }
+        }
+      }
+
+      return reply.status(200).send({ success: true });
     }
   );
 
