@@ -23,6 +23,8 @@ services:
     expose:
       - "3000"
     env_file: .env
+    volumes:
+      - thumbs:/app/thumbnails
     depends_on:
       db:
         condition: service_healthy
@@ -40,6 +42,8 @@ services:
     build: ./backend
     command: ["node", "dist/src/worker.js"]
     env_file: .env
+    volumes:
+      - thumbs:/app/thumbnails
     depends_on:
       db:
         condition: service_healthy
@@ -114,3 +118,4 @@ volumes:
   redisdata:
   caddy_data:
   caddy_config:
+  thumbs:

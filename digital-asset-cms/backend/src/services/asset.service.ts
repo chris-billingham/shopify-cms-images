@@ -4,6 +4,7 @@ import { driveService as _defaultDriveService, type DriveService } from './drive
 import * as auditService from './audit.service.js';
 import { getSetting, DRIVE_FOLDER_KEY } from './settings.service.js';
 import { config } from '../config/index.js';
+import { generateThumbnail, deleteThumbnail } from './thumbnail.service.js';
 
 // ── Error types ───────────────────────────────────────────────────────────────
 
@@ -135,6 +136,14 @@ export async function createAsset(
     throw err;
   }
 
+  // Generate thumbnail for raster images — non-fatal if it fails
+  const assetId = asset['id'] as string;
+  const thumbnailUrl = await generateThumbnail(assetId, buffer, mimeType).catch(() => null);
+  if (thumbnailUrl) {
+    await db('assets').where('id', assetId).update({ thumbnail_url: thumbnailUrl });
+    asset = { ...asset, thumbnail_url: thumbnailUrl };
+  }
+
   await auditService.log(userId, 'upload', 'asset', asset['id'] as string, {
     file_name: fileName,
     mime_type: mimeType,
@@ -208,6 +217,7 @@ export async function softDeleteAsset(id: string, userId: string | null): Promis
   if (!asset) throw new AssetNotFoundError(id);
 
   await db('assets').where('id', id).update({ status: 'deleted', updated_at: new Date() });
+  await deleteThumbnail(id);
 
   await auditService.log(userId, 'delete', 'asset', id, {
     file_name: asset.file_name,
@@ -328,6 +338,15 @@ export async function replaceAsset(
   } catch (err) {
     await drive.trashFile(newDriveId).catch(() => {});
     throw err;
+  }
+
+  // Thumbnail for new asset; clear stale thumbnail for archived one
+  await deleteThumbnail(id);
+  const newAssetId = newAsset!['id'] as string;
+  const thumbnailUrl = await generateThumbnail(newAssetId, buffer, mimeType).catch(() => null);
+  if (thumbnailUrl) {
+    await db('assets').where('id', newAssetId).update({ thumbnail_url: thumbnailUrl });
+    newAsset = { ...newAsset!, thumbnail_url: thumbnailUrl };
   }
 
   await refreshSearchView().catch(() => {});

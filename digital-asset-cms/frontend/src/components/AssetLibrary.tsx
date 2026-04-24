@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { FacetSidebar } from './FacetSidebar';
@@ -54,6 +54,14 @@ const THUMB_COLORS = ['#f0c8b4', '#cbdaf0', '#d5e4c8', '#f5e6a8', '#e4d4ea'];
 
 function previewUrl(assetId: string, token: string | null) {
   return token ? `/api/assets/${assetId}/preview?token=${encodeURIComponent(token)}` : null;
+}
+
+function thumbnailUrl(asset: Asset, token: string | null) {
+  if (!token) return null;
+  const t = encodeURIComponent(token);
+  return asset.thumbnail_url
+    ? `${asset.thumbnail_url}?token=${t}`
+    : `/api/assets/${asset.id}/preview?token=${t}`;
 }
 
 // ── Lightbox ──────────────────────────────────────────────────────────────────
@@ -212,7 +220,13 @@ function AssetCard({
   const hue = THUMB_COLORS[index % THUMB_COLORS.length];
   const angle = (index * 37) % 180;
   const skuTag = asset.tags['sku'] ?? asset.tags['SKU'];
-  const src = previewUrl(asset.id, token);
+  const fallbackSrc = previewUrl(asset.id, token);
+  const [src, setSrc] = useState(() => thumbnailUrl(asset, token));
+  const assetIdRef = useRef(asset.id);
+  if (assetIdRef.current !== asset.id) {
+    assetIdRef.current = asset.id;
+    setSrc(thumbnailUrl(asset, token));
+  }
   const isImage = asset.asset_type === 'image';
 
   return (
@@ -265,6 +279,7 @@ function AssetCard({
             src={src}
             alt={asset.file_name}
             loading="lazy"
+            onError={() => { if (src !== fallbackSrc) setSrc(fallbackSrc); }}
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (

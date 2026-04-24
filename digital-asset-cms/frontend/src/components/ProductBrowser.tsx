@@ -69,8 +69,12 @@ function ProductDetail({ productId }: { productId: string }) {
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {assets.map((asset) => {
-              const previewSrc = asset.asset_type === 'image' && token
-                ? `/api/assets/${asset.asset_id}/preview?token=${encodeURIComponent(token)}`
+              const t = token ? encodeURIComponent(token) : null;
+              const fallbackSrc = asset.asset_type === 'image' && t
+                ? `/api/assets/${asset.asset_id}/preview?token=${t}`
+                : null;
+              const imgSrc = asset.asset_type === 'image' && t
+                ? (asset.thumbnail_url ? `${asset.thumbnail_url}?token=${t}` : fallbackSrc)
                 : null;
               return (
                 <div
@@ -85,11 +89,12 @@ function ProductDetail({ productId }: { productId: string }) {
                     position: 'relative',
                   }}
                 >
-                  {previewSrc ? (
+                  {imgSrc ? (
                     <img
-                      src={previewSrc}
+                      src={imgSrc}
                       alt={asset.file_name}
                       loading="lazy"
+                      onError={(e) => { if (fallbackSrc && e.currentTarget.src !== fallbackSrc) e.currentTarget.src = fallbackSrc; }}
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   ) : (

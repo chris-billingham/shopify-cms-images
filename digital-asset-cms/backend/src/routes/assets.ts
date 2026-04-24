@@ -19,6 +19,7 @@ import {
   AssetNotFoundError,
   OptimisticLockError,
 } from '../services/asset.service.js';
+import { openThumbnailStream } from '../services/thumbnail.service.js';
 import { driveService } from '../services/drive.service.js';
 import * as auditService from '../services/audit.service.js';
 import { checkIdempotencyKey, storeIdempotencyResult } from '../utils/idempotency.js';
@@ -303,6 +304,36 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
   );
+
+  // ── GET /api/assets/:id/thumbnail — serve cached thumbnail from disk ─────
+  fastify.get('/:id/thumbnail', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { token } = request.query as { token?: string };
+
+    if (!token) {
+      return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'token query param required' } });
+    }
+
+    let payload: { user_id: string; role: string };
+    try {
+      payload = verifyAccessToken(token, config.JWT_SECRET);
+    } catch {
+      return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
+    }
+
+    const user = await db('users').where('id', payload.user_id).first();
+    if (!user || user.status !== 'active') {
+      return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'User account is deactivated' } });
+    }
+
+    const stream = openThumbnailStream(id);
+    stream.on('error', () => {
+      if (!reply.sent) reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Thumbnail not found' } });
+    });
+    reply.header('Content-Type', 'image/jpeg');
+    reply.header('Cache-Control', 'private, max-age=3600');
+    return reply.send(stream);
+  });
 
   // ── GET /api/assets/:id/download — stream from Drive ─────────────────────
   fastify.get('/:id/download', { preHandler: [authenticate] }, async (request, reply) => {

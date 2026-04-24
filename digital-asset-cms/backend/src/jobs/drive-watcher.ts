@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { db } from '../db/connection.js';
 import * as auditService from '../services/audit.service.js';
 import { refreshSearchView } from '../services/asset.service.js';
+import { deleteThumbnail } from '../services/thumbnail.service.js';
 import { emitAdminAlert } from '../websocket/handler.js';
 import { config } from '../config/index.js';
 
@@ -165,6 +166,7 @@ async function processChange(change: DriveChange, teamDriveId: string): Promise<
     await db('assets')
       .where('google_drive_id', fileId)
       .update({ thumbnail_url: null, thumb_expires_at: null, updated_at: new Date() });
+    await deleteThumbnail(existing.id as string);
   }
 }
 

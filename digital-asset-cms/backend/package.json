@@ -35,6 +35,7 @@
     "knex": "^3.x",
     "pg": "^8.x",
     "pino": "^9.x",
+    "sharp": "^0.34.5",
     "zod": "^3.x"
   },
   "devDependencies": {

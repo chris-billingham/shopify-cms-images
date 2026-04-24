@@ -24,6 +24,8 @@ COPY --from=deps     /app/node_modules ./node_modules
 COPY --from=builder  /app/dist         ./dist
 COPY package*.json ./
 
+RUN mkdir -p /app/thumbnails && chown appuser:appgroup /app/thumbnails
+
 USER appuser
 
 EXPOSE 3000
