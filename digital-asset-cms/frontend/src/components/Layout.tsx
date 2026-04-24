@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/authStore';
 import { usePermissions } from '../hooks/usePermissions';
@@ -24,7 +24,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { data: me } = useQuery({
     queryKey: ['users', 'me'],
     queryFn: async () => {
-      const { data } = await apiClient.get<{ user: { name: string; email: string; role: string } }>('/users/me');
+      const { data } = await apiClient.get<{ user: { name: string; email: string; role: string; avatar_url: string | null } }>('/users/me');
       return data.user;
     },
     enabled: !!accessToken,
@@ -71,7 +71,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink)' }}>
-          <div style={{
+          <Link to="/profile" style={{
             width: 28, height: 28,
             border: '1.5px solid var(--ink)',
             borderRadius: '50%',
@@ -82,17 +82,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
             fontWeight: 700,
             fontSize: 14,
             flexShrink: 0,
+            overflow: 'hidden',
+            textDecoration: 'none',
+            color: 'var(--ink)',
           }}>
-            {initials}
-          </div>
-          <div style={{ lineHeight: 1.2, textAlign: 'right' }}>
+            {me?.avatar_url ? (
+              <img src={me.avatar_url} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              initials
+            )}
+          </Link>
+          <Link to="/profile" style={{ lineHeight: 1.2, textAlign: 'right', textDecoration: 'none', color: 'var(--ink)' }}>
             <div style={{ fontSize: 13 }}>{displayName}</div>
             {me?.email && (
               <div style={{ fontSize: 11, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
                 {me.email}
               </div>
             )}
-          </div>
+          </Link>
           <button onClick={handleLogout} className="btn-sketch sm">
             log out
           </button>

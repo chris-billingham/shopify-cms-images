@@ -25,6 +25,7 @@ services:
     env_file: .env
     volumes:
       - thumbs:/app/thumbnails
+      - avatars:/app/avatars
     depends_on:
       db:
         condition: service_healthy
@@ -119,3 +120,4 @@ volumes:
   caddy_data:
   caddy_config:
   thumbs:
+  avatars:

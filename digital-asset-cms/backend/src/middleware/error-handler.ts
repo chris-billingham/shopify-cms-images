@@ -62,6 +62,7 @@ export function globalErrorHandler(error: AnyError, _request: FastifyRequest, re
   }
 
   const statusCode = (error?.statusCode ?? 500) as number;
+  if (statusCode >= 500) reply.log.error(error);
   reply.status(statusCode).send({
     error: {
       code: 'INTERNAL_ERROR',

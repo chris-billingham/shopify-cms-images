@@ -9,6 +9,7 @@ import { AssetDetailPanel } from './components/AssetDetailPanel';
 import { UploadView } from './components/UploadView';
 import { ProductBrowser } from './components/ProductBrowser';
 import { AdminSettings } from './components/AdminSettings';
+import { ProfilePage } from './pages/ProfilePage';
 import { useAuthStore } from './stores/authStore';
 import { usePermissions } from './hooks/usePermissions';
 import { Asset } from './types';
@@ -126,6 +127,16 @@ function App() {
               <ProtectedRoute>
                 <div className="p-6">
                   <ProductBrowser />
+                </div>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <div className="p-6">
+                  <ProfilePage />
                 </div>
               </ProtectedRoute>
             }

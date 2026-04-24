@@ -1,32 +1,147 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { db } from '../db/connection.js';
-import { hashPassword, invalidateUserRefreshTokens } from '../services/auth.service.js';
+import { hashPassword, verifyPassword, invalidateUserRefreshTokens } from '../services/auth.service.js';
+import path from 'path';
+import { promises as fsp } from 'fs';
+import sharp from 'sharp';
+
+const AVATARS_DIR = path.join(process.cwd(), 'avatars');
+
+const USER_COLS = ['id', 'email', 'name', 'role', 'status', 'avatar_url', 'created_at'];
 
 const usersRoutes: FastifyPluginAsync = async (fastify) => {
+  await fsp.mkdir(AVATARS_DIR, { recursive: true });
+
   const adminOnly = [authenticate, requireRole('admin')];
 
-  // GET /api/users/me — current user's profile (any authenticated user)
+  // GET /api/users/avatars/:filename — serve avatar images (no auth, filenames are UUID-based)
+  fastify.get('/avatars/:filename', async (request, reply) => {
+    const { filename } = request.params as { filename: string };
+    const safe = path.basename(filename);
+    if (safe !== filename) {
+      return reply.status(400).send({ error: { code: 'INVALID_REQUEST', message: 'Invalid filename' } });
+    }
+    try {
+      const buffer = await fsp.readFile(path.join(AVATARS_DIR, safe));
+      return reply.type('image/jpeg').send(buffer);
+    } catch {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Avatar not found' } });
+    }
+  });
+
+  // GET /api/users/me — current user's profile
   fastify.get('/me', { preHandler: [authenticate] }, async (request, reply) => {
     const user = await db('users')
-      .select('id', 'email', 'name', 'role', 'status', 'created_at')
+      .select('id', 'email', 'name', 'role', 'status', 'avatar_url', 'created_at', 'password_hash')
       .where('id', request.user!.user_id)
       .first();
     if (!user) {
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'User not found' } });
     }
-    return reply.send({ user });
+    const { password_hash, ...userFields } = user;
+    return reply.send({ user: { ...userFields, has_password: !!password_hash } });
   });
 
-  // GET /api/users — list all users
+  // PATCH /api/users/me — update own display name
+  fastify.patch('/me', { preHandler: [authenticate] }, async (request, reply) => {
+    const { name } = request.body as { name?: string };
+    if (!name?.trim()) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'name is required' } });
+    }
+    const [updated] = await db('users')
+      .where('id', request.user!.user_id)
+      .update({ name: name.trim(), updated_at: new Date() })
+      .returning(USER_COLS);
+    return reply.send({ user: updated });
+  });
+
+  // POST /api/users/me/avatar — upload profile image
+  fastify.post('/me/avatar', { preHandler: [authenticate] }, async (request, reply) => {
+    const data = await request.file().catch((err: Error) => {
+      fastify.log.error({ err }, 'request.file() failed in avatar upload');
+      return null;
+    });
+    if (!data) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'No file uploaded' } });
+    }
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowed.includes(data.mimetype)) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'File must be an image (jpeg, png, webp, gif)' } });
+    }
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of data.file) {
+      chunks.push(chunk as Buffer);
+    }
+    const buffer = Buffer.concat(chunks);
+
+    const userId = request.user!.user_id;
+    const filename = `${userId}-${Date.now()}.jpg`;
+    const filePath = path.join(AVATARS_DIR, filename);
+
+    // Remove old avatars for this user before saving the new one
+    const existing = await fsp.readdir(AVATARS_DIR).catch(() => [] as string[]);
+    for (const f of existing) {
+      if (f.startsWith(`${userId}-`) && f !== filename) {
+        await fsp.unlink(path.join(AVATARS_DIR, f)).catch(() => {});
+      }
+    }
+
+    await sharp(buffer)
+      .resize(256, 256, { fit: 'cover' })
+      .jpeg({ quality: 85 })
+      .toFile(filePath);
+
+    const avatarUrl = `/api/users/avatars/${filename}`;
+    const [updated] = await db('users')
+      .where('id', userId)
+      .update({ avatar_url: avatarUrl, updated_at: new Date() })
+      .returning(USER_COLS);
+
+    return reply.send({ user: updated });
+  });
+
+  // POST /api/users/me/password — change password (email/password accounts only)
+  fastify.post('/me/password', { preHandler: [authenticate] }, async (request, reply) => {
+    const { currentPassword, newPassword } = request.body as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+    if (!currentPassword || !newPassword) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'currentPassword and newPassword are required' } });
+    }
+    if (newPassword.length < 8) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'New password must be at least 8 characters' } });
+    }
+
+    const user = await db('users').where('id', request.user!.user_id).first();
+    if (!user?.password_hash) {
+      return reply.status(400).send({ error: { code: 'FORBIDDEN', message: 'Password change is not available for OAuth accounts' } });
+    }
+
+    const valid = await verifyPassword(user.password_hash, currentPassword);
+    if (!valid) {
+      return reply.status(400).send({ error: { code: 'WRONG_PASSWORD', message: 'Current password is incorrect' } });
+    }
+
+    const newHash = await hashPassword(newPassword);
+    await db('users')
+      .where('id', request.user!.user_id)
+      .update({ password_hash: newHash, updated_at: new Date() });
+
+    return reply.send({ message: 'Password updated successfully' });
+  });
+
+  // GET /api/users — list all users (admin)
   fastify.get('/', { preHandler: adminOnly }, async (_request, reply) => {
     const users = await db('users')
-      .select('id', 'email', 'name', 'role', 'status', 'created_at')
+      .select(...USER_COLS)
       .orderBy('created_at', 'asc');
     return reply.send({ users });
   });
 
-  // POST /api/users — create a user
+  // POST /api/users — create a user (admin)
   fastify.post('/', { preHandler: adminOnly }, async (request, reply) => {
     const { email, name, role, password } = request.body as {
       email?: string;
@@ -64,12 +179,12 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
         status: 'active',
         password_hash,
       })
-      .returning(['id', 'email', 'name', 'role', 'status', 'created_at']);
+      .returning(USER_COLS);
 
     return reply.status(201).send({ user });
   });
 
-  // PATCH /api/users/:id — update role, status, or name
+  // PATCH /api/users/:id — update role, status, or name (admin)
   fastify.patch('/:id', { preHandler: adminOnly }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { role, status, name } = request.body as {
@@ -104,7 +219,7 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
     const [updated] = await db('users')
       .where('id', id)
       .update(updates)
-      .returning(['id', 'email', 'name', 'role', 'status', 'created_at']);
+      .returning(USER_COLS);
 
     if (status === 'inactive') {
       await invalidateUserRefreshTokens(db, id);
@@ -113,7 +228,7 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ user: updated });
   });
 
-  // DELETE /api/users/:id — hard delete
+  // DELETE /api/users/:id — hard delete (admin)
   fastify.delete('/:id', { preHandler: adminOnly }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
