@@ -481,7 +481,7 @@ export function ProductBrowser() {
               <th className="pb-2 pr-4">Vendor</th>
               <th className="pb-2 pr-4">Category</th>
               <th className="pb-2 pr-4 text-right">Stock</th>
-              <th className="pb-2 pr-4">Variants</th>
+              <th className="pb-2 pr-4 text-right">Variants</th>
               <th className="pb-2" />
             </tr>
           </thead>
@@ -498,7 +498,7 @@ export function ProductBrowser() {
                   <td className="py-2 pr-4 text-gray-600">{product.vendor ?? '—'}</td>
                   <td className="py-2 pr-4 text-gray-600">{product.category ?? '—'}</td>
                   <td className="py-2 pr-4 text-gray-600 text-right">{product.total_inventory.toLocaleString()}</td>
-                  <td className="py-2 pr-4 text-gray-600">{product.variant_count}</td>
+                  <td className="py-2 pr-4 text-gray-600 text-right">{product.variant_count}</td>
                   <td className="py-2">
                     <button
                       aria-label={`${expandedId === product.id ? 'Collapse' : 'Expand'} ${product.title}`}
