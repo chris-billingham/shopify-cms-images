@@ -41,6 +41,7 @@ export interface Product {
   status?: string;
   shopify_tags?: string[];
   variant_count: number;
+  total_inventory: number;
   synced_at?: string;
   shopify_created_at?: string;
 }

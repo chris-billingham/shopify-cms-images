@@ -480,6 +480,7 @@ export function ProductBrowser() {
               <th className="pb-2 pr-4">Title</th>
               <th className="pb-2 pr-4">Vendor</th>
               <th className="pb-2 pr-4">Category</th>
+              <th className="pb-2 pr-4 text-right">Stock</th>
               <th className="pb-2 pr-4">Variants</th>
               <th className="pb-2" />
             </tr>
@@ -487,7 +488,7 @@ export function ProductBrowser() {
           <tbody>
             {filtered.length === 0 && !isLoading && (
               <tr>
-                <td colSpan={5} className="py-4 text-center text-gray-400 text-sm">No products match the current filters.</td>
+                <td colSpan={6} className="py-4 text-center text-gray-400 text-sm">No products match the current filters.</td>
               </tr>
             )}
             {filtered.map((product) => (
@@ -496,6 +497,7 @@ export function ProductBrowser() {
                   <td className="py-2 pr-4 font-medium">{product.title}</td>
                   <td className="py-2 pr-4 text-gray-600">{product.vendor ?? '—'}</td>
                   <td className="py-2 pr-4 text-gray-600">{product.category ?? '—'}</td>
+                  <td className="py-2 pr-4 text-gray-600 text-right">{product.total_inventory.toLocaleString()}</td>
                   <td className="py-2 pr-4 text-gray-600">{product.variant_count}</td>
                   <td className="py-2">
                     <button
@@ -516,7 +518,7 @@ export function ProductBrowser() {
                 {/* Detail panel (expanded) */}
                 {expandedId === product.id && (
                   <tr>
-                    <td colSpan={5} style={{ padding: 0, borderBottom: '1.5px solid var(--ink)' }}>
+                    <td colSpan={6} style={{ padding: 0, borderBottom: '1.5px solid var(--ink)' }}>
                       <ProductDetail productId={product.id} shopifyCreatedAt={product.shopify_created_at} />
                     </td>
                   </tr>

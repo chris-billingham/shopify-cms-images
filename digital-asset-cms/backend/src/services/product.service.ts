@@ -78,7 +78,7 @@ export async function listProducts(filters?: {
   let query = db('products')
     .leftJoin('product_variants as pv', 'products.id', 'pv.product_id')
     .groupBy('products.id')
-    .select('products.*', db.raw('COUNT(pv.id)::int AS variant_count'))
+    .select('products.*', db.raw('COUNT(pv.id)::int AS variant_count'), db.raw('COALESCE(SUM(pv.inventory_quantity), 0)::int AS total_inventory'))
     .orderBy('products.created_at', 'desc');
 
   if (filters?.q) {
