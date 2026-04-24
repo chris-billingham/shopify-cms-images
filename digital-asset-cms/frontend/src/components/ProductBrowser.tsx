@@ -202,7 +202,7 @@ export function ProductBrowser() {
   const [search, setSearch] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('active');
   const [sort, setSort] = useState('title-asc');
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
   const [showImportOptions, setShowImportOptions] = useState(false);
