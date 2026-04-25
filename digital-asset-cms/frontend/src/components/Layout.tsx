@@ -1,8 +1,11 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/authStore';
+import { useAlertStore } from '../stores/alertStore';
 import { usePermissions } from '../hooks/usePermissions';
 import { apiClient } from '../api/client';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { WebSocketMessage } from '../types';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const clearAuth = useAuthStore((s) => s.clearAuth);
@@ -10,6 +13,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const accessToken = useAuthStore((s) => s.accessToken);
   const { canViewAdmin } = usePermissions();
   const navigate = useNavigate();
+
+  const driveWatcherAlert = useAlertStore((s) => s.driveWatcherAlert);
+  const rateLimitAlert = useAlertStore((s) => s.rateLimitAlert);
+  const setDriveWatcherAlert = useAlertStore((s) => s.setDriveWatcherAlert);
 
   const handleLogout = async () => {
     try {
@@ -30,6 +37,33 @@ export function Layout({ children }: { children: React.ReactNode }) {
     enabled: !!accessToken,
     staleTime: 5 * 60 * 1000,
   });
+
+  // Poll watcher status for admins on mount and every 60s to catch alerts after page refresh
+  useQuery({
+    queryKey: ['drive', 'watcher-status'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ paused: boolean; consecutiveFailures: number }>('/drive/watcher-status');
+      return data;
+    },
+    enabled: role === 'admin',
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    select: (data) => {
+      if (data.paused) {
+        setDriveWatcherAlert(`Drive watcher has paused after ${data.consecutiveFailures} consecutive failures. Check the server logs and restart the service.`);
+      }
+      return data;
+    },
+  });
+
+  // WebSocket — admins only, to receive real-time admin_alert messages
+  const handleWsMessage = (msg: WebSocketMessage) => {
+    if (msg.type === 'admin_alert') {
+      const payload = msg.payload as { message?: string } | undefined;
+      setDriveWatcherAlert(payload?.message ?? 'Drive watcher alert');
+    }
+  };
+  useWebSocket(handleWsMessage, role === 'admin');
 
   const displayName = me?.name ?? role ?? '';
   const initials = displayName
@@ -105,6 +139,46 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </nav>
+
+      {/* Drive watcher alert banner */}
+      {driveWatcherAlert && (
+        <div style={{
+          background: '#fff3cd',
+          border: '1.5px solid var(--ink)',
+          borderTop: 'none',
+          padding: '8px 18px',
+          fontSize: 13,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          fontFamily: "'Architects Daughter', sans-serif",
+        }}>
+          <span>⚠ {driveWatcherAlert}</span>
+          <button
+            onClick={() => setDriveWatcherAlert(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--ink)', lineHeight: 1, padding: '0 4px' }}
+            aria-label="Dismiss alert"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Rate limit banner — auto-dismisses after 5s */}
+      {rateLimitAlert && (
+        <div style={{
+          background: 'var(--accent-soft)',
+          border: '1.5px solid var(--accent)',
+          borderTop: 'none',
+          padding: '6px 18px',
+          fontSize: 12,
+          color: 'var(--accent)',
+          fontFamily: "'JetBrains Mono', monospace",
+        }}>
+          {rateLimitAlert}
+        </div>
+      )}
 
       <main className="flex-1">
         {children}

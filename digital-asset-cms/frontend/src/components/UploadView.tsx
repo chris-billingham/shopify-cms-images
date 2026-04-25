@@ -336,7 +336,17 @@ export function UploadView() {
 
                 {fileState.status === 'uploading' ? (
                   <span className="status-dot ok">uploading</span>
-                ) : fileState.status === 'error' && !fileState.duplicateAsset ? (
+                ) : fileState.status === 'error' && fileState.error === 'Upload failed' ? (
+                  <button
+                    className="btn-sketch sm"
+                    onClick={() => {
+                      setFiles((prev) => prev.map((f) => f.file === fileState.file ? { ...f, status: 'uploading', error: undefined } : f));
+                      uploadFile(fileState.file);
+                    }}
+                  >
+                    retry
+                  </button>
+                ) : fileState.status === 'error' ? (
                   <span className="muted-label">unsupported type</span>
                 ) : (
                   <div />

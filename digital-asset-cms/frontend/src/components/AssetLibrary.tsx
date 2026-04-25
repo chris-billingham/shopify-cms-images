@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FacetSidebar } from './FacetSidebar';
 import { Asset, ActiveFilters, SearchResult } from '../types';
 import { apiClient } from '../api/client';
@@ -447,9 +447,13 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [showBulkTag, setShowBulkTag] = useState(false);
+  const [bulkTagKey, setBulkTagKey] = useState('');
+  const [bulkTagValue, setBulkTagValue] = useState('');
   const { canUpload } = usePermissions();
   const token = useAuthStore((s) => s.accessToken);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [bulkDownloadStatus, setBulkDownloadStatus] = useState<'idle' | 'started' | 'error'>('idle');
 
@@ -468,6 +472,18 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
     onError: () => {
       setBulkDownloadStatus('error');
       setTimeout(() => setBulkDownloadStatus('idle'), 4000);
+    },
+  });
+
+  const bulkTag = useMutation({
+    mutationFn: async ({ ids, key, value }: { ids: string[]; key: string; value: string }) => {
+      await apiClient.post('/assets/bulk-tag', { asset_ids: ids, tags: { [key]: value }, mode: 'merge' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
+      setShowBulkTag(false);
+      setBulkTagKey('');
+      setBulkTagValue('');
     },
   });
 
@@ -523,7 +539,12 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
         {selectedIds.size > 0 && (
           <div className="bulk-bar">
             <strong>{selectedIds.size} selected</strong>
-            <button className="btn-sketch sm" disabled title="Not yet implemented" style={{ opacity: 0.4 }}>＋ tag</button>
+            <button
+              className="btn-sketch sm"
+              onClick={() => setShowBulkTag((v) => !v)}
+            >
+              ＋ tag
+            </button>
             <button className="btn-sketch sm" disabled title="Not yet implemented" style={{ opacity: 0.4 }}>link to product…</button>
             <button
               className="btn-sketch sm"
@@ -545,6 +566,47 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
             >
               clear selection
             </span>
+          </div>
+        )}
+
+        {/* Bulk tag form */}
+        {showBulkTag && selectedIds.size > 0 && (
+          <div style={{
+            display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10,
+            padding: '8px 12px',
+            border: '1.5px dashed var(--ink)',
+            background: 'var(--paper-2)',
+            fontSize: 13,
+          }}>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>tag {selectedIds.size} assets:</span>
+            <input
+              placeholder="key"
+              value={bulkTagKey}
+              onChange={(e) => setBulkTagKey(e.target.value)}
+              className="sketch-input"
+              style={{ width: 100 }}
+            />
+            <input
+              placeholder="value"
+              value={bulkTagValue}
+              onChange={(e) => setBulkTagValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && bulkTagKey.trim() && bulkTagValue.trim()) {
+                  bulkTag.mutate({ ids: [...selectedIds], key: bulkTagKey.trim(), value: bulkTagValue.trim() });
+                }
+              }}
+              className="sketch-input"
+              style={{ width: 120 }}
+            />
+            <button
+              className="btn-sketch sm primary"
+              disabled={!bulkTagKey.trim() || !bulkTagValue.trim() || bulkTag.isPending}
+              onClick={() => bulkTag.mutate({ ids: [...selectedIds], key: bulkTagKey.trim(), value: bulkTagValue.trim() })}
+            >
+              {bulkTag.isPending ? '…' : 'apply'}
+            </button>
+            <button className="btn-sketch sm" onClick={() => setShowBulkTag(false)}>cancel</button>
+            {bulkTag.isError && <span style={{ fontSize: 11, color: 'var(--accent)' }}>Failed — try again</span>}
           </div>
         )}
 

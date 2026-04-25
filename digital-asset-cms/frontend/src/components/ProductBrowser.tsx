@@ -537,7 +537,27 @@ export function ProductBrowser() {
         </div>
       </div>
 
-      {isLoading && <p role="status" style={{ color: 'var(--ink-soft)', fontSize: 13, fontFamily: "'JetBrains Mono', monospace" }}>Loading products…</p>}
+      {isLoading && (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <tr key={i} style={{ borderBottom: '1px dashed var(--ink-soft)' }}>
+                <td style={{ padding: '10px 12px 10px 0', width: '40%' }}>
+                  <div style={{ height: 12, background: 'var(--paper-2)', border: '1px solid var(--ink-soft)', borderRadius: 2, width: `${60 + (i % 3) * 15}%` }} />
+                </td>
+                <td style={{ padding: '10px 12px 10px 0', width: '20%' }}>
+                  <div style={{ height: 12, background: 'var(--paper-2)', border: '1px solid var(--ink-soft)', borderRadius: 2, width: '70%' }} />
+                </td>
+                <td style={{ padding: '10px 12px 10px 0', width: '20%' }}>
+                  <div style={{ height: 12, background: 'var(--paper-2)', border: '1px solid var(--ink-soft)', borderRadius: 2, width: '50%' }} />
+                </td>
+                <td style={{ width: '10%' }} />
+                <td style={{ width: '10%' }} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
       {isError && <p role="alert" style={{ color: 'var(--accent)', fontSize: 13, fontFamily: "'JetBrains Mono', monospace" }}>Failed to load products.</p>}
 
       {!isLoading && (

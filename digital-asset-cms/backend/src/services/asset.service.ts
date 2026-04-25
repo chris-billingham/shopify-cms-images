@@ -353,6 +353,26 @@ export async function replaceAsset(
   return newAsset!;
 }
 
+export async function bulkTagAssets(
+  ids: string[],
+  tags: Record<string, string>,
+  mode: 'merge' | 'replace',
+  userId: string | null
+): Promise<number> {
+  let updated = 0;
+  for (const id of ids) {
+    const asset = await db('assets').where('id', id).whereNot('status', 'deleted').first();
+    if (!asset) continue;
+    const currentTags = (asset.tags ?? {}) as Record<string, string>;
+    const newTags = mode === 'merge' ? { ...currentTags, ...tags } : tags;
+    await db('assets').where('id', id).update({ tags: JSON.stringify(newTags), updated_at: new Date() });
+    await auditService.log(userId, 'tag_change', 'asset', id, { mode, applied_tags: tags });
+    updated++;
+  }
+  if (updated > 0) await refreshSearchView().catch(() => {});
+  return updated;
+}
+
 export async function getAssetVersions(id: string): Promise<Record<string, unknown>[]> {
   const asset = await db('assets').where('id', id).first();
   if (!asset) throw new AssetNotFoundError(id);

@@ -15,6 +15,7 @@ import {
   replaceAsset,
   getAssetVersions,
   refreshSearchView,
+  bulkTagAssets,
   AssetValidationError,
   AssetNotFoundError,
   OptimisticLockError,
@@ -86,6 +87,39 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
         }
         throw err;
       }
+    }
+  );
+
+  // ── POST /api/assets/bulk-tag — apply tags to multiple assets ────────────
+  fastify.post(
+    '/bulk-tag',
+    {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute',
+          keyGenerator: bulkRateLimitKey,
+          errorResponseBuilder: rateLimitErrorBuilder,
+        },
+      },
+      preHandler: [authenticate, requireRole('editor', 'admin')],
+    },
+    async (request, reply) => {
+      const body = request.body as { asset_ids?: unknown; tags?: unknown; mode?: unknown };
+      const { asset_ids: assetIds, tags, mode = 'merge' } = body ?? {};
+
+      if (!Array.isArray(assetIds) || assetIds.length === 0) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'asset_ids must be a non-empty array' } });
+      }
+      if (!tags || typeof tags !== 'object' || Array.isArray(tags) || Object.keys(tags as object).length === 0) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'tags must be a non-empty object' } });
+      }
+      if (mode !== 'merge' && mode !== 'replace') {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'mode must be "merge" or "replace"' } });
+      }
+
+      const updated = await bulkTagAssets(assetIds as string[], tags as Record<string, string>, mode, request.user!.user_id);
+      return reply.send({ updated });
     }
   );
 

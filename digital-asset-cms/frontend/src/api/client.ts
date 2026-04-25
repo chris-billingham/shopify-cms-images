@@ -1,5 +1,6 @@
 import axios, { InternalAxiosRequestConfig } from 'axios';
 import { getAccessToken, setAccessToken, useAuthStore } from '../stores/authStore';
+import { useAlertStore } from '../stores/alertStore';
 
 export const apiClient = axios.create({
   baseURL: '/api',
@@ -52,6 +53,14 @@ apiClient.interceptors.response.use(
     const originalRequest = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
     };
+
+    if (error.response?.status === 429) {
+      const data = error.response.data as { retryAfter?: string };
+      const retryAfter = data.retryAfter ?? 'a moment';
+      useAlertStore.getState().setRateLimitAlert(`Rate limit reached — try again in ${retryAfter}`);
+      setTimeout(() => useAlertStore.getState().setRateLimitAlert(null), 5000);
+      return Promise.reject(error);
+    }
 
     if (error.response?.status !== 401 || originalRequest._retry) {
       return Promise.reject(error);

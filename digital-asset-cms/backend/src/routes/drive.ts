@@ -4,8 +4,21 @@ import { driveService } from '../services/drive.service.js';
 import { getSetting, setSetting, DRIVE_FOLDER_KEY, GOOGLE_SERVICE_ACCOUNT_KEY_SETTING } from '../services/settings.service.js';
 import { config } from '../config/index.js';
 import * as auditService from '../services/audit.service.js';
+import { watcherState } from '../jobs/drive-watcher.js';
 
 const driveRoutes: FastifyPluginAsync = async (fastify) => {
+
+  // ── GET /api/drive/watcher-status — drive watcher health (admin only) ─────
+  fastify.get(
+    '/watcher-status',
+    { preHandler: [authenticate, requireRole('admin')] },
+    async (_request, reply) => {
+      return reply.send({
+        paused: watcherState.paused,
+        consecutiveFailures: watcherState.consecutiveFailures,
+      });
+    }
+  );
 
   // ── GET /api/drive/folders?parentId=xxx — list subfolders ─────────────────
   fastify.get(

@@ -24,6 +24,8 @@ COPY --from=deps     /app/node_modules ./node_modules
 COPY --from=builder  /app/dist         ./dist
 COPY package*.json ./
 
+RUN apk add --no-cache ffmpeg
+
 RUN mkdir -p /app/thumbnails /app/avatars && chown appuser:appgroup /app/thumbnails /app/avatars
 
 USER appuser

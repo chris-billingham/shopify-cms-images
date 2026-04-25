@@ -150,7 +150,7 @@ export interface JobProgressPayload {
   status: JobStatus;
 }
 
-export type WebSocketMessageType = 'job_progress' | 'asset_updated' | 'ping' | 'pong';
+export type WebSocketMessageType = 'job_progress' | 'asset_updated' | 'admin_alert' | 'asset_change' | 'ping' | 'pong';
 
 export interface WebSocketMessage {
   type: WebSocketMessageType;
