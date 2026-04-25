@@ -207,6 +207,25 @@ PREVIEW_HOST=https://preview.cms.yourdomain.com  # default: http://preview.local
 
 Caddy provisions TLS automatically via Let's Encrypt when `CMS_HOST` is an `https://` URL. For local development the default `http://localhost` is used and no certificate is needed.
 
+**Accessing from other machines on the same network (LAN/remote server):**
+
+Do **not** put the external port number in `CMS_HOST`. The value controls which port Caddy binds to *inside the container*, but Docker already maps the external port (15063) to internal port 80. Setting `CMS_HOST=http://192.168.1.154:15063` would cause Caddy to bind on port 15063 inside the container, which is not exposed, resulting in connection refused.
+
+Instead, use a bare `:80` / `:8080` catch-all (matches any hostname) and set `APP_URL`/`FRONTEND_ORIGIN` to the IP and external port:
+
+```bash
+CMS_HOST=:80
+PREVIEW_HOST=:8080
+APP_URL=http://192.168.1.154:15063
+FRONTEND_ORIGIN=http://192.168.1.154:15063
+```
+
+Then access the CMS at `http://<server-ip>:15063` from any device on the network. After changing these values, restart the affected containers:
+
+```bash
+docker compose up -d --no-deps caddy app worker
+```
+
 ---
 
 ## Running in Production
@@ -1064,6 +1083,25 @@ docker compose exec app node dist/scripts/seed-admin.js --email admin@yourdomain
 ---
 
 ## Troubleshooting
+
+### Can't access the CMS from another machine on the network
+
+**Symptom:** `ERR_CONNECTION_REFUSED` when opening `http://<server-ip>:15063` from another device.
+
+**Cause:** `CMS_HOST` (or `PREVIEW_HOST`) in `.env` includes the external port number, e.g. `http://192.168.1.154:15063`. This tells Caddy to bind on port 15063 *inside the container*, but Docker maps external 15063 → internal 80, so nothing is listening on port 80 and requests are refused.
+
+**Fix:** Use `:80` / `:8080` as the host values (Caddy catch-all on the Docker-mapped ports) and set `APP_URL`/`FRONTEND_ORIGIN` to the full external URL:
+
+```bash
+CMS_HOST=:80
+PREVIEW_HOST=:8080
+APP_URL=http://192.168.1.154:15063
+FRONTEND_ORIGIN=http://192.168.1.154:15063
+```
+
+Then restart: `docker compose up -d --no-deps caddy app worker`
+
+See the [Caddyfile](#caddyfile) section for full details.
 
 ### Stack won't start
 
