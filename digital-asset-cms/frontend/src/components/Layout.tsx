@@ -38,7 +38,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Poll watcher status for admins on mount and every 60s to catch alerts after page refresh
   useQuery({
     queryKey: ['drive', 'watcher-status'],
     queryFn: async () => {
@@ -56,7 +55,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
     },
   });
 
-  // WebSocket — admins only, to receive real-time admin_alert messages
   const handleWsMessage = (msg: WebSocketMessage) => {
     if (msg.type === 'admin_alert') {
       const payload = msg.payload as { message?: string } | undefined;
@@ -73,9 +71,58 @@ export function Layout({ children }: { children: React.ReactNode }) {
     .join('')
     .toUpperCase() || (role ?? 'U').slice(0, 2).toUpperCase();
 
+  const avatarEl = me?.avatar_url ? (
+    <img src={me.avatar_url} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+  ) : (
+    initials
+  );
+
+  const alertBanners = (
+    <>
+      {driveWatcherAlert && (
+        <div style={{
+          background: '#fff3cd',
+          border: '1.5px solid var(--ink)',
+          borderTop: 'none',
+          padding: '8px 18px',
+          fontSize: 13,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          fontFamily: "'Architects Daughter', sans-serif",
+        }}>
+          <span>⚠ {driveWatcherAlert}</span>
+          <button
+            onClick={() => setDriveWatcherAlert(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--ink)', lineHeight: 1, padding: '0 4px' }}
+            aria-label="Dismiss alert"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {rateLimitAlert && (
+        <div style={{
+          background: 'var(--accent-soft)',
+          border: '1.5px solid var(--accent)',
+          borderTop: 'none',
+          padding: '6px 18px',
+          fontSize: 12,
+          color: 'var(--accent)',
+          fontFamily: "'JetBrains Mono', monospace",
+        }}>
+          {rateLimitAlert}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', fontFamily: "'Architects Daughter', sans-serif" }}>
-      <nav style={{
+
+      {/* Desktop nav — hidden on mobile via CSS */}
+      <nav className="desktop-nav-bar" style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -103,7 +150,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <NavLink to="/admin" style={navItemStyle}>Admin</NavLink>
           )}
         </div>
-
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink)' }}>
           <Link to="/profile" style={{
             width: 28, height: 28,
@@ -120,11 +166,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             textDecoration: 'none',
             color: 'var(--ink)',
           }}>
-            {me?.avatar_url ? (
-              <img src={me.avatar_url} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              initials
-            )}
+            {avatarEl}
           </Link>
           <Link to="/profile" style={{ lineHeight: 1.2, textAlign: 'right', textDecoration: 'none', color: 'var(--ink)' }}>
             <div style={{ fontSize: 13 }}>{displayName}</div>
@@ -140,54 +182,79 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
 
-      {/* Drive watcher alert banner */}
-      {driveWatcherAlert && (
-        <div style={{
-          background: '#fff3cd',
+      {/* Mobile slim top bar — hidden on desktop via CSS */}
+      <nav className="mobile-slim-nav" style={{
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '10px 16px',
+        borderBottom: '2px solid var(--ink)',
+        background: 'var(--paper)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 30,
+      }}>
+        <span style={{
+          fontFamily: "'Caveat', cursive",
+          fontWeight: 700,
+          fontSize: 20,
+          color: 'var(--ink)',
+        }}>
+          ◼ Asset CMS
+        </span>
+        <Link to="/profile" style={{
+          width: 32, height: 32,
           border: '1.5px solid var(--ink)',
-          borderTop: 'none',
-          padding: '8px 18px',
-          fontSize: 13,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          fontFamily: "'Architects Daughter', sans-serif",
-        }}>
-          <span>⚠ {driveWatcherAlert}</span>
-          <button
-            onClick={() => setDriveWatcherAlert(null)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--ink)', lineHeight: 1, padding: '0 4px' }}
-            aria-label="Dismiss alert"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {/* Rate limit banner — auto-dismisses after 5s */}
-      {rateLimitAlert && (
-        <div style={{
+          borderRadius: '50%',
           background: 'var(--accent-soft)',
-          border: '1.5px solid var(--accent)',
-          borderTop: 'none',
-          padding: '6px 18px',
-          fontSize: 12,
-          color: 'var(--accent)',
-          fontFamily: "'JetBrains Mono', monospace",
+          display: 'grid',
+          placeItems: 'center',
+          fontFamily: "'Caveat', cursive",
+          fontWeight: 700,
+          fontSize: 15,
+          flexShrink: 0,
+          overflow: 'hidden',
+          textDecoration: 'none',
+          color: 'var(--ink)',
         }}>
-          {rateLimitAlert}
-        </div>
-      )}
+          {avatarEl}
+        </Link>
+      </nav>
 
-      <main className="flex-1">
+      {alertBanners}
+
+      <main className="flex-1 layout-main">
         {children}
       </main>
+
+      {/* Mobile bottom tab bar — always in DOM, hidden on desktop via CSS */}
+      <nav className="mobile-tab-bar" aria-label="Main navigation">
+        <NavLink to="/" end className={({ isActive }) => `mobile-tab${isActive ? ' active' : ''}`}>
+          <span className="mobile-tab-icon">▣</span>
+          Library
+        </NavLink>
+        <NavLink to="/upload" className={({ isActive }) => `mobile-tab${isActive ? ' active' : ''}`}>
+          <span className="mobile-tab-icon">↑</span>
+          Upload
+        </NavLink>
+        <NavLink to="/products" className={({ isActive }) => `mobile-tab${isActive ? ' active' : ''}`}>
+          <span className="mobile-tab-icon">⬡</span>
+          Products
+        </NavLink>
+        {canViewAdmin && (
+          <NavLink to="/admin" className={({ isActive }) => `mobile-tab${isActive ? ' active' : ''}`}>
+            <span className="mobile-tab-icon">⚙</span>
+            Admin
+          </NavLink>
+        )}
+        <button className="mobile-tab" onClick={handleLogout} aria-label="Log out">
+          <span className="mobile-tab-icon">←</span>
+          Log out
+        </button>
+      </nav>
     </div>
   );
 }
 
-// NavLink style function — receives { isActive }
 function navItemStyle({ isActive }: { isActive: boolean }): React.CSSProperties {
   return {
     padding: '5px 12px',

@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/authStore';
 interface AssetDetailPanelProps {
   asset: Asset;
   onClose: () => void;
+  isMobile?: boolean;
 }
 
 interface TagUpdatePayload {
@@ -30,7 +31,7 @@ interface Product {
   shopify_id: string | null;
 }
 
-export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
+export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelProps) {
   const [conflictError, setConflictError] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [debouncedProductSearch, setDebouncedProductSearch] = useState('');
@@ -185,10 +186,10 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
       aria-label="Asset detail"
       style={{
         position: 'fixed',
-        inset: '0 0 0 auto',
-        width: 360,
+        inset: isMobile ? 0 : '0 0 0 auto',
+        width: isMobile ? '100%' : 360,
         background: 'var(--paper)',
-        borderLeft: '2px solid var(--ink)',
+        borderLeft: isMobile ? 'none' : '2px solid var(--ink)',
         display: 'flex',
         flexDirection: 'column',
         zIndex: 50,
@@ -196,41 +197,67 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
       }}
     >
       {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        padding: '14px 16px 10px',
-        borderBottom: '2px solid var(--ink)',
-        background: 'var(--paper)',
-      }}>
-        <h3 style={{
-          fontFamily: "'Caveat', cursive",
-          fontSize: 20,
-          margin: 0,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          maxWidth: 280,
+      {isMobile ? (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '10px 16px',
+          borderBottom: '2px solid var(--ink)',
+          background: 'var(--paper)',
         }}>
-          {asset.file_name}
-        </h3>
-        <button
-          onClick={onClose}
-          aria-label="Close panel"
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 16,
-            color: 'var(--ink-soft)',
-            flexShrink: 0,
-          }}
-        >
-          ✕
-        </button>
-      </div>
+          <button onClick={onClose} className="btn-sketch sm" aria-label="Back to Library">
+            ← back
+          </button>
+          <h3 style={{
+            fontFamily: "'Caveat', cursive",
+            fontSize: 20,
+            margin: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+          }}>
+            {asset.file_name}
+          </h3>
+        </div>
+      ) : (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          padding: '14px 16px 10px',
+          borderBottom: '2px solid var(--ink)',
+          background: 'var(--paper)',
+        }}>
+          <h3 style={{
+            fontFamily: "'Caveat', cursive",
+            fontSize: 20,
+            margin: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: 280,
+          }}>
+            {asset.file_name}
+          </h3>
+          <button
+            onClick={onClose}
+            aria-label="Close panel"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 16,
+              color: 'var(--ink-soft)',
+              flexShrink: 0,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
         {conflictError && (

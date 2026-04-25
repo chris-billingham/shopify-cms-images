@@ -7,6 +7,7 @@ import { apiClient } from '../api/client';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../stores/authStore';
 import { useLibraryFilterStore } from '../stores/filterStore';
+import { useMobile } from '../hooks/useMobile';
 
 interface AssetLibraryProps {
   onAssetClick?: (asset: Asset) => void;
@@ -442,11 +443,13 @@ function Pager({ page, total, limit, onChange }: {
 }
 
 export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
+  const isMobile = useMobile();
   const { searchQuery, searchInput, filters, sort,
           setSearchQuery, setSearchInput, setFilters, setSort } = useLibraryFilterStore();
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [showBulkTag, setShowBulkTag] = useState(false);
   const [bulkTagKey, setBulkTagKey] = useState('');
   const [bulkTagValue, setBulkTagValue] = useState('');
@@ -569,19 +572,26 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
 
   const refreshedAgo = dataUpdatedAt ? Math.round((now - dataUpdatedAt) / 1000) : null;
 
+  const activeFilterCount =
+    (filters.type ? 1 : 0) +
+    (filters.product_status ? 1 : 0) +
+    Object.keys(filters.tags ?? {}).length;
+
   return (
     <>
     <div style={{ display: 'flex', minHeight: '100%' }}>
-      <FacetSidebar
-        facets={facets ?? data?.facets ?? {}}
-        activeFilters={filters}
-        onFilterChange={handleFilterChange}
-      />
+      {!isMobile && (
+        <FacetSidebar
+          facets={facets ?? data?.facets ?? {}}
+          activeFilters={filters}
+          onFilterChange={handleFilterChange}
+        />
+      )}
 
-      <div style={{ flex: 1, padding: 18, minWidth: 0, minHeight: 640 }}>
+      <div style={{ flex: 1, padding: isMobile ? 12 : 18, minWidth: 0, minHeight: isMobile ? 0 : 640 }}>
         {/* Bulk action bar */}
         {selectedIds.size > 0 && (
-          <div className="bulk-bar">
+          <div className="bulk-bar" style={isMobile ? { overflowX: 'auto', flexWrap: 'nowrap' } : {}}>
             <strong>{selectedIds.size} selected</strong>
             <button
               className="btn-sketch sm"
@@ -794,15 +804,26 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
         )}
 
         {/* Search row */}
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
-          <div className="search-bar">
+        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+          <div className="search-bar" style={{ flex: 1, minWidth: 0 }}>
             <span className="search-icon" />
             <input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search file names, SKUs, product titles, tag values…"
+              placeholder={isMobile ? 'Search…' : 'Search file names, SKUs, product titles, tag values…'}
             />
           </div>
+
+          {isMobile && (
+            <button
+              type="button"
+              className="btn-sketch sm"
+              onClick={() => setFilterSheetOpen(true)}
+              aria-label="Open filters"
+            >
+              Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+            </button>
+          )}
 
           <select
             value={sort}
@@ -815,7 +836,7 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
             ))}
           </select>
 
-          {canUpload && (
+          {canUpload && !isMobile && (
             <button
               type="button"
               onClick={() => navigate('/upload')}
@@ -859,8 +880,10 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-              gap: 14,
+              gridTemplateColumns: isMobile
+                ? 'repeat(auto-fill, minmax(110px, 1fr))'
+                : 'repeat(auto-fill, minmax(150px, 1fr))',
+              gap: isMobile ? 10 : 14,
             }}
             role="list"
             aria-label="Asset grid"
@@ -899,6 +922,35 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
         token={token}
         onClose={() => setPreviewIndex(null)}
       />
+    )}
+
+    {/* Filter bottom sheet — mobile only */}
+    {isMobile && filterSheetOpen && (
+      <>
+        <div
+          className="filter-sheet-backdrop"
+          onClick={() => setFilterSheetOpen(false)}
+          aria-hidden="true"
+        />
+        <div className="filter-sheet" role="dialog" aria-label="Filters">
+          <div className="filter-sheet-handle" />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontFamily: "'Caveat', cursive", fontSize: 20 }}>Filters</span>
+            <button
+              className="btn-sketch sm"
+              onClick={() => setFilterSheetOpen(false)}
+            >
+              done
+            </button>
+          </div>
+          <FacetSidebar
+            facets={facets ?? data?.facets ?? {}}
+            activeFilters={filters}
+            onFilterChange={(next) => { handleFilterChange(next); }}
+            compact
+          />
+        </div>
+      </>
     )}
     </>
   );

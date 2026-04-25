@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZES, getAssetType } from '../types';
+import { useMobile } from '../hooks/useMobile';
 
 interface SearchProduct {
   id: string;
@@ -54,6 +55,7 @@ function StatusDot({ status, progress }: { status: FileState['status']; progress
 }
 
 export function UploadView() {
+  const isMobile = useMobile();
   const [files, setFiles] = useState<FileState[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -241,7 +243,7 @@ export function UploadView() {
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: '1fr 320px',
+      gridTemplateColumns: isMobile ? '1fr' : '1fr 320px',
       minHeight: 'calc(100vh - 50px)',
     }}>
       {/* Main upload area */}
@@ -256,14 +258,17 @@ export function UploadView() {
           role="region"
           aria-label="Drop zone"
         >
-          drop files here
+          {isMobile ? 'tap to add files' : 'drop files here'}
           <div className="dropzone-hint">
-            or click to browse · images ≤ 100MB · video ≤ 1GB · pdf ≤ 50MB
+            {isMobile
+              ? 'images · video · pdf'
+              : 'or click to browse · images ≤ 100MB · video ≤ 1GB · pdf ≤ 50MB'}
           </div>
           <input
             ref={fileInputRef}
             type="file"
             multiple
+            accept="image/*,video/*,application/pdf"
             style={{ display: 'none' }}
             onChange={handleFileChange}
           />

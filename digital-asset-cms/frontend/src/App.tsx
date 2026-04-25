@@ -12,6 +12,7 @@ import { AdminSettings } from './components/AdminSettings';
 import { ProfilePage } from './pages/ProfilePage';
 import { useAuthStore } from './stores/authStore';
 import { usePermissions } from './hooks/usePermissions';
+import { useMobile } from './hooks/useMobile';
 import { Asset } from './types';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -93,6 +94,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const isMobile = useMobile();
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -108,7 +110,7 @@ function App() {
                   <AssetLibrary onAssetClick={setSelectedAsset} />
                 </div>
                 {selectedAsset && (
-                  <AssetDetailPanel asset={selectedAsset} onClose={() => setSelectedAsset(null)} />
+                  <AssetDetailPanel asset={selectedAsset} onClose={() => setSelectedAsset(null)} isMobile={isMobile} />
                 )}
               </ProtectedRoute>
             }

@@ -4,6 +4,7 @@ interface FacetSidebarProps {
   facets: Facets;
   activeFilters: ActiveFilters;
   onFilterChange: (filters: ActiveFilters) => void;
+  compact?: boolean;
 }
 
 const typeIcons: Record<string, string> = {
@@ -23,7 +24,7 @@ const PRODUCT_STATUS_LABELS: Record<string, string> = {
   'archived': 'archived',
 };
 
-export function FacetSidebar({ facets, activeFilters, onFilterChange }: FacetSidebarProps) {
+export function FacetSidebar({ facets, activeFilters, onFilterChange, compact }: FacetSidebarProps) {
   const handleTypeClick = (value: string) => {
     if (activeFilters.type === value) {
       const { type: _type, ...rest } = activeFilters;
@@ -58,7 +59,13 @@ export function FacetSidebar({ facets, activeFilters, onFilterChange }: FacetSid
     Object.keys(activeFilters.tags ?? {}).length > 0;
 
   return (
-    <aside className="sketch-sidebar" style={{ minHeight: 640, width: 240, flexShrink: 0 }}>
+    <aside
+      className="sketch-sidebar"
+      style={compact
+        ? { width: '100%', minHeight: 0, borderRight: 'none' }
+        : { minHeight: 640, width: 240, flexShrink: 0 }
+      }
+    >
       {/* Type facets */}
       {facets.asset_type && facets.asset_type.length > 0 && (
         <>
