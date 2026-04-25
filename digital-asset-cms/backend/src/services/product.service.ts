@@ -70,24 +70,64 @@ export async function getProduct(id: string): Promise<Record<string, unknown>> {
   return { ...product, variants, links } as Record<string, unknown>;
 }
 
+export interface ListProductsResult {
+  products: Record<string, unknown>[];
+  total: number;
+}
+
+const ALLOWED_PRODUCT_SORT: Record<string, string> = {
+  title:              'products.title',
+  vendor:             'products.vendor',
+  variants:           'variant_count',
+  inventory:          'total_inventory',
+  created_at:         'products.created_at',
+  synced_at:          'products.synced_at',
+  shopify_created_at: 'products.shopify_created_at',
+};
+
 export async function listProducts(filters?: {
   q?: string;
+  vendor?: string;
+  category?: string;
+  status?: string;
+  sort?: string;
+  order?: string;
   limit?: number;
   offset?: number;
-}): Promise<Record<string, unknown>[]> {
-  let query = db('products')
+}): Promise<ListProductsResult> {
+  const order = filters?.order === 'asc' ? 'ASC' : 'DESC';
+  const sortCol = ALLOWED_PRODUCT_SORT[filters?.sort ?? ''] ?? 'products.created_at';
+  const nulls = order === 'DESC' ? 'NULLS LAST' : 'NULLS FIRST';
+
+  // Count total matching products (no join needed)
+  let countQuery = db('products');
+  if (filters?.q)        countQuery = countQuery.whereRaw('title ILIKE ?', [`%${filters.q}%`]);
+  if (filters?.vendor)   countQuery = countQuery.where('vendor', filters.vendor);
+  if (filters?.category) countQuery = countQuery.where('category', filters.category);
+  if (filters?.status)   countQuery = countQuery.where('status', filters.status);
+  const countRow = await countQuery.count('id as count').first() as { count: string } | undefined;
+  const total = parseInt(countRow?.count ?? '0', 10);
+
+  // Paginated data query
+  let dataQuery = db('products')
     .leftJoin('product_variants as pv', 'products.id', 'pv.product_id')
     .groupBy('products.id')
-    .select('products.*', db.raw('COUNT(pv.id)::int AS variant_count'), db.raw('COALESCE(SUM(pv.inventory_quantity), 0)::int AS total_inventory'))
-    .orderBy('products.created_at', 'desc');
+    .select(
+      'products.*',
+      db.raw('COUNT(pv.id)::int AS variant_count'),
+      db.raw('COALESCE(SUM(pv.inventory_quantity), 0)::int AS total_inventory'),
+    )
+    .orderByRaw(`${sortCol} ${order} ${nulls}`);
 
-  if (filters?.q) {
-    query = query.whereRaw('products.title ILIKE ?', [`%${filters.q}%`]);
-  }
-  if (filters?.limit) query = query.limit(filters.limit);
-  if (filters?.offset) query = query.offset(filters.offset);
+  if (filters?.q)        dataQuery = dataQuery.whereRaw('products.title ILIKE ?', [`%${filters.q}%`]);
+  if (filters?.vendor)   dataQuery = dataQuery.where('products.vendor', filters.vendor);
+  if (filters?.category) dataQuery = dataQuery.where('products.category', filters.category);
+  if (filters?.status)   dataQuery = dataQuery.where('products.status', filters.status);
+  if (filters?.limit !== undefined) dataQuery = dataQuery.limit(filters.limit);
+  if (filters?.offset !== undefined) dataQuery = dataQuery.offset(filters.offset);
 
-  return (await query) as Record<string, unknown>[];
+  const products = await dataQuery;
+  return { products: products as Record<string, unknown>[], total };
 }
 
 // ── Variant operations ────────────────────────────────────────────────────────

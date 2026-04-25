@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Asset } from '../types';
 import { apiClient } from '../api/client';
@@ -33,10 +33,16 @@ interface Product {
 export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
   const [conflictError, setConflictError] = useState(false);
   const [productSearch, setProductSearch] = useState('');
+  const [debouncedProductSearch, setDebouncedProductSearch] = useState('');
   const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'done' | 'error'>('idle');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [newTagKey, setNewTagKey] = useState('');
   const [newTagValue, setNewTagValue] = useState('');
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedProductSearch(productSearch), 300);
+    return () => clearTimeout(t);
+  }, [productSearch]);
 
   const queryClient = useQueryClient();
   const { canEditTags, canDelete, canLinkProducts, canPushToShopify } = usePermissions();
@@ -71,14 +77,14 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
   });
 
   const { data: searchData } = useQuery({
-    queryKey: ['products-search', productSearch],
+    queryKey: ['products-search', debouncedProductSearch],
     queryFn: async () => {
       const { data } = await apiClient.get<{ products: Product[] }>('/products', {
-        params: { q: productSearch, limit: 10 },
+        params: { q: debouncedProductSearch, limit: 10 },
       });
       return data.products;
     },
-    enabled: productSearch.length > 0,
+    enabled: debouncedProductSearch.length > 0,
   });
 
   const patchAsset = useMutation({
@@ -171,7 +177,7 @@ export function AssetDetailPanel({ asset, onClose }: AssetDetailPanelProps) {
   const linkedProducts = linkedData ?? [];
   const hasShopifyLink = linkedProducts.some((p) => p.shopify_id);
 
-  const fileSizeMB = (asset.file_size / (1024 * 1024)).toFixed(1);
+  const fileSizeMB = (liveAsset.file_size / (1024 * 1024)).toFixed(1);
 
   return (
     <div

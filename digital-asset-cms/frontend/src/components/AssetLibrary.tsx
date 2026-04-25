@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { FacetSidebar } from './FacetSidebar';
 import { Asset, ActiveFilters, SearchResult } from '../types';
 import { apiClient } from '../api/client';
@@ -27,16 +27,19 @@ const SORT_MAP: Record<string, { sort: string; order: string }> = {
   size:   { sort: 'file_size',  order: 'desc' },
 };
 
-async function fetchAssets(query: string, filters: ActiveFilters, sort: string, page: number): Promise<SearchResult> {
+function buildFilterParams(filters: ActiveFilters): URLSearchParams {
   const params = new URLSearchParams();
-  if (query) params.set('q', query);
   if (filters.type) params.set('type', filters.type);
   if (filters.product_status) params.set('product_status', filters.product_status);
   if (filters.tags) {
-    Object.entries(filters.tags).forEach(([k, v]) => {
-      params.set(`tags[${k}]`, v);
-    });
+    Object.entries(filters.tags).forEach(([k, v]) => params.set(`tags[${k}]`, v));
   }
+  return params;
+}
+
+async function fetchAssets(query: string, filters: ActiveFilters, sort: string, page: number): Promise<SearchResult> {
+  const params = buildFilterParams(filters);
+  if (query) params.set('q', query);
   const sortParams = SORT_MAP[sort];
   if (sortParams) {
     params.set('sort', sortParams.sort);
@@ -44,9 +47,17 @@ async function fetchAssets(query: string, filters: ActiveFilters, sort: string, 
   }
   params.set('page', String(page));
   params.set('limit', String(PAGE_SIZE));
-  params.set('facets', 'true');
   const { data } = await apiClient.get<SearchResult>(`/search?${params}`);
   return data;
+}
+
+async function fetchFacets(query: string, filters: ActiveFilters): Promise<SearchResult['facets']> {
+  const params = buildFilterParams(filters);
+  if (query) params.set('q', query);
+  params.set('limit', '1');
+  params.set('facets', 'true');
+  const { data } = await apiClient.get<SearchResult>(`/search?${params}`);
+  return data.facets;
 }
 
 const TYPE_ICON: Record<string, string> = { image: 'img', video: 'vid', text: 'txt', document: 'doc' };
@@ -441,9 +452,35 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
   const token = useAuthStore((s) => s.accessToken);
   const navigate = useNavigate();
 
+  const [bulkDownloadStatus, setBulkDownloadStatus] = useState<'idle' | 'started' | 'error'>('idle');
+
+  const bulkDownload = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { data } = await apiClient.post<{ job_id: string; asset_count: number }>(
+        '/assets/bulk-download',
+        { asset_ids: ids },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      setBulkDownloadStatus('started');
+      setTimeout(() => setBulkDownloadStatus('idle'), 4000);
+    },
+    onError: () => {
+      setBulkDownloadStatus('error');
+      setTimeout(() => setBulkDownloadStatus('idle'), 4000);
+    },
+  });
+
   const { data, isLoading, isError, dataUpdatedAt } = useQuery({
     queryKey: ['assets', 'search', searchQuery, filters, sort, page],
     queryFn: () => fetchAssets(searchQuery, filters, sort, page),
+  });
+
+  const { data: facets } = useQuery({
+    queryKey: ['assets', 'facets', searchQuery, filters],
+    queryFn: () => fetchFacets(searchQuery, filters),
+    staleTime: 60_000,
   });
 
   const handleSelect = useCallback((id: string, checked: boolean) => {
@@ -465,21 +502,19 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
     setFilters(next);
   };
 
-  const handleSortChange = () => {
-    const idx = SORT_OPTIONS.findIndex((o) => o.value === sort);
-    setSort(SORT_OPTIONS[(idx + 1) % SORT_OPTIONS.length].value);
-    setPage(1);
-  };
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
-  const refreshedAgo = dataUpdatedAt
-    ? Math.round((Date.now() - dataUpdatedAt) / 1000)
-    : null;
+  const refreshedAgo = dataUpdatedAt ? Math.round((now - dataUpdatedAt) / 1000) : null;
 
   return (
     <>
     <div style={{ display: 'flex', minHeight: '100%' }}>
       <FacetSidebar
-        facets={data?.facets ?? {}}
+        facets={facets ?? data?.facets ?? {}}
         activeFilters={filters}
         onFilterChange={handleFilterChange}
       />
@@ -489,10 +524,22 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
         {selectedIds.size > 0 && (
           <div className="bulk-bar">
             <strong>{selectedIds.size} selected</strong>
-            <button className="btn-sketch sm">＋ tag</button>
-            <button className="btn-sketch sm">link to product…</button>
-            <button className="btn-sketch sm">↓ bulk download</button>
-            <button className="btn-sketch sm">push to shopify</button>
+            <button className="btn-sketch sm" disabled title="Not yet implemented" style={{ opacity: 0.4 }}>＋ tag</button>
+            <button className="btn-sketch sm" disabled title="Not yet implemented" style={{ opacity: 0.4 }}>link to product…</button>
+            <button
+              className="btn-sketch sm"
+              onClick={() => bulkDownload.mutate([...selectedIds])}
+              disabled={bulkDownload.isPending}
+            >
+              {bulkDownload.isPending
+                ? '…'
+                : bulkDownloadStatus === 'started'
+                ? '↓ download queued ✓'
+                : bulkDownloadStatus === 'error'
+                ? '↓ download failed'
+                : '↓ bulk download'}
+            </button>
+            <button className="btn-sketch sm" disabled title="Not yet implemented" style={{ opacity: 0.4 }}>push to shopify</button>
             <span
               style={{ marginLeft: 'auto', opacity: 0.7, cursor: 'pointer', fontSize: 12 }}
               onClick={() => setSelectedIds(new Set())}
@@ -513,16 +560,16 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
             />
           </div>
 
-          <div style={{ position: 'relative' }}>
-            <button
-              type="button"
-              className="btn-sketch"
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-              onClick={handleSortChange}
-            >
-              sort: {SORT_OPTIONS.find((o) => o.value === sort)?.label} ▾
-            </button>
-          </div>
+          <select
+            value={sort}
+            onChange={(e) => { setSort(e.target.value); setPage(1); }}
+            className="btn-sketch"
+            aria-label="Sort assets"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
 
           {canUpload && (
             <button

@@ -376,7 +376,7 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const { stream, asset } = await downloadAsset(id);
       reply.header('Content-Type', asset['mime_type'] as string);
-      reply.header('Cache-Control', 'private, max-age=300');
+      reply.header('Cache-Control', 'private, max-age=3600');
       return reply.send(stream);
     } catch (err) {
       if (err instanceof AssetNotFoundError) {

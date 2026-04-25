@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZES, getAssetType } from '../types';
 
@@ -61,20 +61,26 @@ export function UploadView() {
 
   // Batch tag sidebar state
   const [batchProductSearch, setBatchProductSearch] = useState('');
+  const [debouncedBatchSearch, setDebouncedBatchSearch] = useState('');
   const [batchRole, setBatchRole] = useState('gallery');
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedBatchSearch(batchProductSearch), 300);
+    return () => clearTimeout(t);
+  }, [batchProductSearch]);
   const [batchTags, setBatchTags] = useState<Array<{ key: string; value: string }>>([]);
   const [newTagKey, setNewTagKey] = useState('');
   const [newTagValue, setNewTagValue] = useState('');
 
   const { data: productSearchData } = useQuery({
-    queryKey: ['products-search-upload', batchProductSearch],
+    queryKey: ['products-search-upload', debouncedBatchSearch],
     queryFn: async () => {
       const { data } = await apiClient.get<{ products: SearchProduct[] }>('/products', {
-        params: { q: batchProductSearch, limit: 10 },
+        params: { q: debouncedBatchSearch, limit: 10 },
       });
       return data.products;
     },
-    enabled: batchProductSearch.length > 1,
+    enabled: debouncedBatchSearch.length > 1,
   });
 
   const checkDuplicate = useMutation({
@@ -184,7 +190,34 @@ export function UploadView() {
     setFiles((prev) => prev.filter((f) => f.file !== file));
   };
 
-  const handleProceedDuplicate = async (file: File) => {
+  const handleReplaceExisting = async (file: File, assetId: string) => {
+    setFiles((prev) =>
+      prev.map((f) => f.file === file ? { ...f, status: 'uploading' } : f),
+    );
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      await apiClient.post(`/assets/${assetId}/replace`, formData, {
+        headers: { 'Content-Type': undefined },
+        onUploadProgress: (e) => {
+          const pct = e.total ? Math.round((e.loaded / e.total) * 100) : 0;
+          setFiles((prev) =>
+            prev.map((f) => f.file === file ? { ...f, progress: pct } : f),
+          );
+        },
+      });
+      setFiles((prev) =>
+        prev.map((f) => f.file === file ? { ...f, status: 'done', progress: 100 } : f),
+      );
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
+    } catch {
+      setFiles((prev) =>
+        prev.map((f) => f.file === file ? { ...f, status: 'error', error: 'Replace failed' } : f),
+      );
+    }
+  };
+
+  const handleUploadAnyway = async (file: File) => {
     setFiles((prev) =>
       prev.map((f) => f.file === file ? { ...f, status: 'uploading' } : f),
     );
@@ -271,10 +304,10 @@ export function UploadView() {
                       <button className="btn-sketch sm" onClick={() => handleDismissDuplicate(fileState.file)}>
                         skip
                       </button>
-                      <button className="btn-sketch sm primary" onClick={() => handleProceedDuplicate(fileState.file)}>
+                      <button className="btn-sketch sm primary" onClick={() => handleReplaceExisting(fileState.file, fileState.duplicateAsset!.id)}>
                         replace existing (new version)
                       </button>
-                      <button className="btn-sketch sm ghost" onClick={() => handleProceedDuplicate(fileState.file)}>
+                      <button className="btn-sketch sm ghost" onClick={() => handleUploadAnyway(fileState.file)}>
                         upload anyway as separate asset
                       </button>
                     </div>

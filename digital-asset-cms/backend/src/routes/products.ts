@@ -30,13 +30,32 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── GET /api/products ──────────────────────────────────────────────────────
   fastify.get('/', { preHandler: [authenticate] }, async (request, reply) => {
-    const q = request.query as { q?: string; limit?: string; offset?: string };
-    const products = await listProducts({
+    const q = request.query as {
+      q?: string; vendor?: string; category?: string; status?: string;
+      sort?: string; order?: string; limit?: string; offset?: string;
+    };
+    const result = await listProducts({
       q: q.q,
-      limit: q.limit ? parseInt(q.limit, 10) : undefined,
-      offset: q.offset ? parseInt(q.offset, 10) : undefined,
+      vendor: q.vendor,
+      category: q.category,
+      status: q.status,
+      sort: q.sort,
+      order: q.order,
+      limit: q.limit ? parseInt(q.limit, 10) : 50,
+      offset: q.offset ? parseInt(q.offset, 10) : 0,
     });
-    return reply.send({ products, total: products.length });
+    return reply.send({ products: result.products, total: result.total });
+  });
+
+  // ── GET /api/products/filter-options — unique vendors/categories/statuses ──
+  // Must be registered before /:id to avoid param capture
+  fastify.get('/filter-options', { preHandler: [authenticate] }, async (_request, reply) => {
+    const [vendors, categories, statuses] = await Promise.all([
+      db('products').distinct('vendor').whereNotNull('vendor').orderBy('vendor').pluck('vendor'),
+      db('products').distinct('category').whereNotNull('category').orderBy('category').pluck('category'),
+      db('products').distinct('status').whereNotNull('status').orderBy('status').pluck('status'),
+    ]);
+    return reply.send({ vendors, categories, statuses });
   });
 
   // ── GET /api/products/:id ─────────────────────────────────────────────────
@@ -149,12 +168,14 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           links.map((l) => [l.link_id as string, l.shopify_image_id as string | null])
         );
 
-        for (let i = 0; i < body.order.length; i++) {
-          const shopifyImageId = imageIdByLink.get(body.order[i]);
-          if (shopifyImageId) {
-            await shopifyService.updateImagePosition(product.shopify_id, shopifyImageId, i + 1);
-          }
-        }
+        await Promise.all(
+          body.order.map(async (linkId, i) => {
+            const shopifyImageId = imageIdByLink.get(linkId);
+            if (shopifyImageId) {
+              await shopifyService.updateImagePosition(product.shopify_id, shopifyImageId, i + 1);
+            }
+          })
+        );
       }
 
       return reply.status(200).send({ success: true });

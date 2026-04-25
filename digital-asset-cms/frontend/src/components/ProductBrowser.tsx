@@ -1,13 +1,32 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Product, ProductVariant, WebSocketMessage, JobProgressPayload } from '../types';
 import { apiClient } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
 import { useWebSocket } from '../hooks/useWebSocket';
 
-async function fetchProducts(): Promise<Product[]> {
-  const { data } = await apiClient.get<{ products: Product[] }>('/products');
-  return data.products ?? [];
+const PRODUCT_PAGE_SIZE = 50;
+
+const PRODUCT_SORT_MAP: Record<string, { sort: string; order: string }> = {
+  'title-asc':      { sort: 'title',             order: 'asc'  },
+  'title-desc':     { sort: 'title',             order: 'desc' },
+  'vendor':         { sort: 'vendor',            order: 'asc'  },
+  'variants-desc':  { sort: 'variants',          order: 'desc' },
+  'variants-asc':   { sort: 'variants',          order: 'asc'  },
+  'newest':         { sort: 'synced_at',         order: 'desc' },
+  'oldest':         { sort: 'synced_at',         order: 'asc'  },
+  'shopify-newest': { sort: 'shopify_created_at', order: 'desc' },
+  'shopify-oldest': { sort: 'shopify_created_at', order: 'asc'  },
+};
+
+async function fetchProducts(params: URLSearchParams): Promise<{ products: Product[]; total: number }> {
+  const { data } = await apiClient.get<{ products: Product[]; total: number }>(`/products?${params}`);
+  return { products: data.products ?? [], total: data.total ?? 0 };
+}
+
+async function fetchFilterOptions(): Promise<{ vendors: string[]; categories: string[]; statuses: string[] }> {
+  const { data } = await apiClient.get<{ vendors: string[]; categories: string[]; statuses: string[] }>('/products/filter-options');
+  return data;
 }
 
 async function fetchVariants(productId: string): Promise<ProductVariant[]> {
@@ -251,59 +270,60 @@ export function ProductBrowser() {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
   const [sort, setSort] = useState('title-asc');
+  const [page, setPage] = useState(1);
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
   const [showImportOptions, setShowImportOptions] = useState(false);
   const [importStatuses, setImportStatuses] = useState<string[]>(['active']);
 
-  const { data: products, isLoading, isError } = useQuery({
-    queryKey: ['products'],
-    queryFn: fetchProducts,
+  // Debounce text search — only send to server 300ms after typing stops
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Reset page when any filter or sort changes
+  useEffect(() => {
+    setPage(1);
+  }, [vendorFilter, categoryFilter, statusFilter, sort]);
+
+  const sortParams = PRODUCT_SORT_MAP[sort] ?? { sort: 'created_at', order: 'desc' };
+
+  const productsQueryParams = new URLSearchParams();
+  if (debouncedSearch) productsQueryParams.set('q', debouncedSearch);
+  if (vendorFilter)   productsQueryParams.set('vendor', vendorFilter);
+  if (categoryFilter) productsQueryParams.set('category', categoryFilter);
+  if (statusFilter)   productsQueryParams.set('status', statusFilter);
+  productsQueryParams.set('sort', sortParams.sort);
+  productsQueryParams.set('order', sortParams.order);
+  productsQueryParams.set('limit', String(PRODUCT_PAGE_SIZE));
+  productsQueryParams.set('offset', String((page - 1) * PRODUCT_PAGE_SIZE));
+
+  const { data: productsData, isLoading, isError } = useQuery({
+    queryKey: ['products', 'list', debouncedSearch, vendorFilter, categoryFilter, statusFilter, sort, page],
+    queryFn: () => fetchProducts(productsQueryParams),
+    staleTime: 5 * 60 * 1000,
   });
 
-  const vendors = useMemo(
-    () => [...new Set(products?.map((p) => p.vendor).filter(Boolean) as string[])].sort(),
-    [products],
-  );
+  const { data: filterOptions } = useQuery({
+    queryKey: ['products', 'filter-options'],
+    queryFn: fetchFilterOptions,
+    staleTime: 10 * 60 * 1000,
+  });
 
-  const categories = useMemo(
-    () => [...new Set(products?.map((p) => p.category).filter(Boolean) as string[])].sort(),
-    [products],
-  );
-
-  const statuses = useMemo(
-    () => [...new Set(products?.map((p) => p.status).filter(Boolean) as string[])].sort(),
-    [products],
-  );
-
-  const filtered = useMemo(() => {
-    if (!products) return [];
-    const q = search.toLowerCase();
-    const list = products.filter((p) => {
-      if (q && !p.title.toLowerCase().includes(q)) return false;
-      if (vendorFilter && p.vendor !== vendorFilter) return false;
-      if (categoryFilter && p.category !== categoryFilter) return false;
-      if (statusFilter && p.status !== statusFilter) return false;
-      return true;
-    });
-    return [...list].sort((a, b) => {
-      switch (sort) {
-        case 'title-asc':  return a.title.localeCompare(b.title);
-        case 'title-desc': return b.title.localeCompare(a.title);
-        case 'vendor':     return (a.vendor ?? '').localeCompare(b.vendor ?? '');
-        case 'variants-desc': return (b.variant_count ?? 0) - (a.variant_count ?? 0);
-        case 'variants-asc':  return (a.variant_count ?? 0) - (b.variant_count ?? 0);
-        case 'newest': return new Date(b.synced_at ?? 0).getTime() - new Date(a.synced_at ?? 0).getTime();
-        case 'oldest': return new Date(a.synced_at ?? 0).getTime() - new Date(b.synced_at ?? 0).getTime();
-        case 'shopify-newest': return new Date(b.shopify_created_at ?? 0).getTime() - new Date(a.shopify_created_at ?? 0).getTime();
-        case 'shopify-oldest': return new Date(a.shopify_created_at ?? 0).getTime() - new Date(b.shopify_created_at ?? 0).getTime();
-        default: return 0;
-      }
-    });
-  }, [products, search, vendorFilter, categoryFilter, statusFilter, sort]);
+  const products = productsData?.products ?? [];
+  const total = productsData?.total ?? 0;
+  const totalPages = Math.ceil(total / PRODUCT_PAGE_SIZE);
+  const vendors = filterOptions?.vendors ?? [];
+  const categories = filterOptions?.categories ?? [];
+  const statuses = filterOptions?.statuses ?? [];
 
   useWebSocket((msg: WebSocketMessage) => {
     if (msg.type !== 'job_progress') return;
@@ -314,7 +334,7 @@ export function ProductBrowser() {
       if (payload.status === 'completed' || payload.status === 'failed') {
         setTimeout(() => {
           setActiveJob(null);
-          queryClient.invalidateQueries({ queryKey: ['products'] });
+          queryClient.invalidateQueries({ queryKey: ['products', 'list'] });
         }, 2500);
       }
       return next;
@@ -343,17 +363,18 @@ export function ProductBrowser() {
   });
 
   const jobRunning = activeJob !== null && activeJob.status === 'running';
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-lg font-semibold">Products</h2>
-        <div className="flex gap-2">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <h2 style={{ fontFamily: "'Caveat', cursive", fontSize: 22, margin: 0 }}>Products</h2>
+        <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending || jobRunning}
             aria-label="Sync Products"
-            className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+            className="btn-sketch primary"
           >
             {syncMutation.isPending ? 'Starting…' : 'Sync Products'}
           </button>
@@ -362,7 +383,7 @@ export function ProductBrowser() {
               onClick={() => setShowImportOptions((v) => !v)}
               disabled={importMutation.isPending || jobRunning}
               aria-label="Import Images"
-              className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200 disabled:opacity-50"
+              className="btn-sketch"
             >
               {importMutation.isPending ? 'Starting…' : 'Import Images ▾'}
             </button>
@@ -421,8 +442,8 @@ export function ProductBrowser() {
 
       {/* Job progress bar */}
       {activeJob && (
-        <div className="mb-4">
-          <div className="flex items-center justify-between text-xs mb-1" style={{ color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, marginBottom: 4, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
             <span>
               {activeJob.type === 'sync' ? 'Syncing products' : 'Importing images'}
               {activeJob.status === 'completed' ? ' — done' : activeJob.status === 'failed' ? ' — failed' : '…'}
@@ -451,124 +472,159 @@ export function ProductBrowser() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <input
           type="search"
           placeholder="Search products…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="border rounded px-3 py-1.5 text-sm flex-1 min-w-40"
+          className="sketch-input"
+          style={{ flex: '0 0 60%' }}
           aria-label="Search products"
         />
-        {vendors.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flex: 1 }}>
+          {vendors.length > 0 && (
+            <select
+              value={vendorFilter}
+              onChange={(e) => setVendorFilter(e.target.value)}
+              className="sketch-input"
+              style={{ flex: 1, minWidth: 0 }}
+              aria-label="Filter by vendor"
+            >
+              <option value="">All vendors</option>
+              {vendors.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          )}
+          {categories.length > 0 && (
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="sketch-input"
+              style={{ flex: 1, minWidth: 0 }}
+              aria-label="Filter by category"
+            >
+              <option value="">All categories</option>
+              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
+          {statuses.length > 0 && (
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="sketch-input"
+              style={{ flex: 1, minWidth: 0 }}
+              aria-label="Filter by status"
+            >
+              <option value="">All statuses</option>
+              {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
           <select
-            value={vendorFilter}
-            onChange={(e) => setVendorFilter(e.target.value)}
-            className="border rounded px-3 py-1.5 text-sm bg-white"
-            aria-label="Filter by vendor"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            className="sketch-input"
+            style={{ flex: 1, minWidth: 0 }}
+            aria-label="Sort products"
           >
-            <option value="">All vendors</option>
-            {vendors.map((v) => <option key={v} value={v}>{v}</option>)}
+            <option value="title-asc">Title A–Z</option>
+            <option value="title-desc">Title Z–A</option>
+            <option value="vendor">Vendor A–Z</option>
+            <option value="variants-desc">Most variants</option>
+            <option value="variants-asc">Fewest variants</option>
+            <option value="newest">Newest sync</option>
+            <option value="oldest">Oldest sync</option>
+            <option value="shopify-newest">Newest in Shopify</option>
+            <option value="shopify-oldest">Oldest in Shopify</option>
           </select>
-        )}
-        {categories.length > 0 && (
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="border rounded px-3 py-1.5 text-sm bg-white"
-            aria-label="Filter by category"
-          >
-            <option value="">All categories</option>
-            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        )}
-        {statuses.length > 0 && (
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border rounded px-3 py-1.5 text-sm bg-white"
-            aria-label="Filter by status"
-          >
-            <option value="">All statuses</option>
-            {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        )}
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value)}
-          className="border rounded px-3 py-1.5 text-sm bg-white"
-          aria-label="Sort products"
-        >
-          <option value="title-asc">Title A–Z</option>
-          <option value="title-desc">Title Z–A</option>
-          <option value="vendor">Vendor A–Z</option>
-          <option value="variants-desc">Most variants</option>
-          <option value="variants-asc">Fewest variants</option>
-          <option value="newest">Newest sync</option>
-          <option value="oldest">Oldest sync</option>
-          <option value="shopify-newest">Newest in Shopify</option>
-          <option value="shopify-oldest">Oldest in Shopify</option>
-        </select>
+        </div>
       </div>
 
-      {isLoading && <p role="status" className="text-gray-500 text-sm">Loading products…</p>}
-      {isError && <p role="alert" className="text-red-500 text-sm">Failed to load products.</p>}
+      {isLoading && <p role="status" style={{ color: 'var(--ink-soft)', fontSize: 13, fontFamily: "'JetBrains Mono', monospace" }}>Loading products…</p>}
+      {isError && <p role="alert" style={{ color: 'var(--accent)', fontSize: 13, fontFamily: "'JetBrains Mono', monospace" }}>Failed to load products.</p>}
 
-      {products && (
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="border-b text-left text-gray-500">
-              <th className="pb-2 pr-4">Title</th>
-              <th className="pb-2 pr-4">Vendor</th>
-              <th className="pb-2 pr-4">Category</th>
-              <th className="pb-2 pr-4 text-right">Stock</th>
-              <th className="pb-2 pr-4 text-right">Variants</th>
-              <th className="pb-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && !isLoading && (
-              <tr>
-                <td colSpan={6} className="py-4 text-center text-gray-400 text-sm">No products match the current filters.</td>
+      {!isLoading && (
+        <>
+          {total > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 6, fontFamily: "'JetBrains Mono', monospace" }}>
+              {total.toLocaleString()} product{total !== 1 ? 's' : ''}
+              {totalPages > 1 && ` · page ${page} of ${totalPages}`}
+            </div>
+          )}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontFamily: "'Architects Daughter', sans-serif" }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid var(--ink)', textAlign: 'left' }}>
+                {(['Title', 'Vendor', 'Category'] as const).map((h) => (
+                  <th key={h} style={{ padding: '4px 12px 6px 0', fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 400, fontFamily: "'JetBrains Mono', monospace" }}>{h}</th>
+                ))}
+                <th style={{ padding: '4px 12px 6px 0', fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 400, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>Stock</th>
+                <th style={{ padding: '4px 12px 6px 0', fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 400, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>Variants</th>
+                <th />
               </tr>
-            )}
-            {filtered.map((product) => (
-              <React.Fragment key={product.id}>
-                <tr className="border-b hover:bg-gray-50">
-                  <td className="py-2 pr-4 font-medium">{product.title}</td>
-                  <td className="py-2 pr-4 text-gray-600">{product.vendor ?? '—'}</td>
-                  <td className="py-2 pr-4 text-gray-600">{product.category ?? '—'}</td>
-                  <td className="py-2 pr-4 text-gray-600 text-right">{product.total_inventory.toLocaleString()}</td>
-                  <td className="py-2 pr-4 text-gray-600 text-right">{product.variant_count}</td>
-                  <td className="py-2">
-                    <button
-                      aria-label={`${expandedId === product.id ? 'Collapse' : 'Expand'} ${product.title}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setExpandedId((prev) =>
-                          prev === product.id ? null : product.id,
-                        );
-                      }}
-                      className="text-gray-400 hover:text-gray-600 text-xs"
-                    >
-                      {expandedId === product.id ? '▲' : '▼'}
-                    </button>
-                  </td>
+            </thead>
+            <tbody>
+              {products.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ padding: '16px 0', textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13, fontFamily: "'JetBrains Mono', monospace" }}>No products match the current filters.</td>
                 </tr>
-
-                {/* Detail panel (expanded) */}
-                {expandedId === product.id && (
-                  <tr>
-                    <td colSpan={6} style={{ padding: 0, borderBottom: '1.5px solid var(--ink)' }}>
-                      <ProductDetail productId={product.id} shopifyCreatedAt={product.shopify_created_at} />
+              )}
+              {products.map((product) => (
+                <React.Fragment key={product.id}>
+                  <tr
+                    style={{
+                      borderBottom: '1px dashed var(--ink-soft)',
+                      background: hoveredRow === product.id ? 'var(--paper-2)' : undefined,
+                      transition: 'background 0.1s',
+                    }}
+                    onMouseEnter={() => setHoveredRow(product.id)}
+                    onMouseLeave={() => setHoveredRow(null)}
+                  >
+                    <td style={{ padding: '7px 12px 7px 0', fontWeight: 600 }}>{product.title}</td>
+                    <td style={{ padding: '7px 12px 7px 0', color: 'var(--ink-soft)' }}>{product.vendor ?? '—'}</td>
+                    <td style={{ padding: '7px 12px 7px 0', color: 'var(--ink-soft)' }}>{product.category ?? '—'}</td>
+                    <td style={{ padding: '7px 12px 7px 0', color: 'var(--ink-soft)', textAlign: 'right' }}>{product.total_inventory.toLocaleString()}</td>
+                    <td style={{ padding: '7px 12px 7px 0', color: 'var(--ink-soft)', textAlign: 'right' }}>{product.variant_count}</td>
+                    <td style={{ padding: '7px 0' }}>
+                      <button
+                        aria-label={`${expandedId === product.id ? 'Collapse' : 'Expand'} ${product.title}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedId((prev) => prev === product.id ? null : product.id);
+                        }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-soft)', fontSize: 11, fontFamily: "'JetBrains Mono', monospace", padding: '2px 4px' }}
+                      >
+                        {expandedId === product.id ? '▲' : '▼'}
+                      </button>
                     </td>
                   </tr>
-                )}
+                  {expandedId === product.id && (
+                    <tr>
+                      <td colSpan={6} style={{ padding: 0, borderBottom: '1.5px solid var(--ink)' }}>
+                        <ProductDetail productId={product.id} shopifyCreatedAt={product.shopify_created_at} />
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
 
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
+          {totalPages > 1 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 4, marginTop: 16,
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+            }}>
+              <button className="btn-sketch sm" onClick={() => setPage((p) => p - 1)} disabled={page <= 1}>← prev</button>
+              {page > 2 && <button className="btn-sketch sm" onClick={() => setPage(1)}>1</button>}
+              {page > 3 && <span style={{ color: 'var(--ink-soft)', padding: '0 2px' }}>…</span>}
+              {page > 1 && <button className="btn-sketch sm" onClick={() => setPage((p) => p - 1)}>{page - 1}</button>}
+              <button className="btn-sketch sm primary" aria-current="page">{page}</button>
+              {page < totalPages && <button className="btn-sketch sm" onClick={() => setPage((p) => p + 1)}>{page + 1}</button>}
+              {page < totalPages - 2 && <span style={{ color: 'var(--ink-soft)', padding: '0 2px' }}>…</span>}
+              {page < totalPages - 1 && <button className="btn-sketch sm" onClick={() => setPage(totalPages)}>{totalPages}</button>}
+              <button className="btn-sketch sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages}>next →</button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
