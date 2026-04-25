@@ -4,6 +4,7 @@ import { Product, ProductVariant, WebSocketMessage, JobProgressPayload } from '.
 import { apiClient } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useProductFilterStore } from '../stores/filterStore';
 
 const PRODUCT_PAGE_SIZE = 50;
 
@@ -269,12 +270,9 @@ interface ActiveJob {
 export function ProductBrowser() {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [vendorFilter, setVendorFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('active');
-  const [sort, setSort] = useState('title-asc');
+  const { search, vendorFilter, categoryFilter, statusFilter, sort,
+          setSearch, setVendorFilter, setCategoryFilter, setStatusFilter, setSort } = useProductFilterStore();
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [page, setPage] = useState(1);
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
   const [showImportOptions, setShowImportOptions] = useState(false);

@@ -6,6 +6,7 @@ import { Asset, ActiveFilters, SearchResult } from '../types';
 import { apiClient } from '../api/client';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../stores/authStore';
+import { useLibraryFilterStore } from '../stores/filterStore';
 
 interface AssetLibraryProps {
   onAssetClick?: (asset: Asset) => void;
@@ -441,10 +442,8 @@ function Pager({ page, total, limit, onChange }: {
 }
 
 export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [filters, setFilters] = useState<ActiveFilters>({});
-  const [sort, setSort] = useState('newest');
+  const { searchQuery, searchInput, filters, sort,
+          setSearchQuery, setSearchInput, setFilters, setSort } = useLibraryFilterStore();
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
