@@ -407,8 +407,15 @@ GET    /api/assets/check-duplicate
   Query: fileName (required), fileSize (required), md5 (optional)
   Returns: { duplicate: bool, asset: Asset | null }
 
+GET    /api/assets/stats
+  Auth: admin
+  Returns: { active_count }
+
 GET    /api/assets/:id
   Returns: Asset
+
+GET    /api/assets/:id/products
+  Returns: linked products and variants for the asset
 
 POST   /api/assets
   Auth: editor | admin
@@ -436,13 +443,38 @@ GET    /api/assets/:id/versions
   Returns: { versions: Asset[] }  — ordered oldest to newest
 
 GET    /api/assets/:id/download
+  Requires Bearer token in Authorization header.
   Streams the file from Google Drive.
+
+GET    /api/assets/:id/preview?token=<access_token>
+  No Authorization header needed — token passed as query param so <img src> tags work.
+  Streams the file inline (Content-Type preserved, Cache-Control: private, max-age=3600).
+
+GET    /api/assets/:id/thumbnail?token=<access_token>
+  No Authorization header needed.
+  Serves a cached JPEG thumbnail from disk (Cache-Control: private, max-age=3600).
+  Returns 404 if no thumbnail has been generated yet.
 
 POST   /api/assets/bulk-download
   Auth: editor | admin
   Body: { asset_ids: string[] }  — max 500 IDs, max 5 GB estimated total
   Returns 202: { job_id, asset_count, total_size_bytes }
   Poll GET /api/jobs/:id for completion, then GET /api/jobs/:id/download for ZIP.
+
+POST   /api/assets/bulk-tag
+  Auth: editor | admin
+  Rate limit: 30 req/min per user
+  Body: { asset_ids: string[], tags: { key: value }, mode: "merge" | "replace" }
+    mode "merge" adds/updates the given keys, leaving other tags untouched.
+    mode "replace" overwrites the entire tags object.
+  Returns: { updated: number }
+
+POST   /api/assets/reset-library
+  Auth: admin
+  Body: { trash_drive_files?: boolean }
+  Soft-deletes all active assets and removes all product links. If trash_drive_files
+  is true, also trashes the Drive files. Irreversible — use with caution.
+  Returns: { reset_count, drive_trashed, drive_errors }
 ```
 
 ### Search
@@ -487,21 +519,36 @@ GET /api/search?type=image&sort=created_at&order=desc
 
 ```
 GET /api/tags/keys
-  Returns: { keys: string[] }  — all distinct tag keys in use
+  Returns: { keys: string[] }  — all distinct tag keys in use across assets
 
 GET /api/tags/values?key=colour
-  Returns: { values: string[] }  — distinct values for the given key
+  Returns: { values: string[] }  — distinct values for the given key (from live assets)
 
 GET /api/tags/facets
   Returns: { facets: { [key]: { [value]: count } } }
+
+GET /api/tags/taxonomy
+  Returns: { taxonomy: { [key]: string[] } }
+  The admin-defined vocabulary of allowed tag keys and their suggested values.
+  Used by the UI to populate tag dropdowns.
+
+PUT /api/tags/taxonomy
+  Auth: admin
+  Body: { taxonomy: { [key]: string[] } }
+  Replaces the entire taxonomy. All values for each key must be an array of strings.
+  Returns: { taxonomy }
 ```
 
 ### Products
 
 ```
 GET    /api/products
-  Query: q (search), limit, offset
+  Query: q, vendor, category, status, sort, order, limit, offset
   Returns: { products, total }
+
+GET    /api/products/filter-options
+  Returns: { vendors: string[], categories: string[], statuses: string[] }
+  Distinct values for use in filter dropdowns.
 
 GET    /api/products/:id
   Returns: Product with variants and linked assets
@@ -509,10 +556,26 @@ GET    /api/products/:id
 GET    /api/products/:id/variants
   Returns: { variants }
 
+GET    /api/products/:id/assets
+  Returns: { assets }  — linked assets ordered by sort_order, including link_id, role, and sort_order
+
 POST   /api/products/:id/assets
   Auth: editor | admin
   Body: { assetId, variantId? (null = product-level), role? (default: gallery), sortOrder? }
   Returns 201: asset_products link
+  Returns 409: if an identical link already exists
+
+POST   /api/products/:id/assets/bulk
+  Auth: editor | admin
+  Body: { assetIds: string[], role? (default: gallery) }
+  Links multiple assets to a product in one call. Already-linked assets are silently skipped.
+  Returns 201: { linked: number, skipped: number }
+
+POST   /api/products/:id/assets/reorder
+  Auth: editor | admin
+  Body: { order: string[] }  — array of asset_products IDs in the desired order
+  Updates sort_order for each link and syncs positions to Shopify if the product has a shopify_id.
+  Returns: { success: true }
 
 DELETE /api/products/:id/assets/:linkId
   Auth: editor | admin
@@ -526,6 +589,18 @@ PATCH  /api/products/:id/assets/:linkId
 ### Shopify
 
 ```
+GET  /api/shopify/settings
+  Auth: admin
+  Returns: { store_domain, admin_api_token_hint, webhook_secret_hint, source }
+  token/secret are masked — only last 4 characters shown.
+  source is "database" if overridden via the UI, "environment" if using env vars.
+
+PUT  /api/shopify/settings
+  Auth: admin
+  Body: { store_domain?, admin_api_token?, webhook_secret? }
+  Saves one or more Shopify credentials to the database, overriding env vars.
+  Returns: { ok: true }
+
 POST /api/shopify/sync-products
   Auth: editor | admin
   Starts a background job to pull product metadata from Shopify.
@@ -552,6 +627,88 @@ POST /api/shopify/reconcile
   Auth: admin
   Compares CMS products against Shopify and fixes discrepancies.
   Returns 202: { job_id }
+```
+
+### Drive
+
+```
+GET  /api/drive/folder
+  Returns: { folder_id, folder_name, is_default }
+  The current upload folder. is_default is true if no folder has been configured
+  and the root Team Drive is being used.
+
+PUT  /api/drive/folder
+  Auth: admin
+  Body: { folder_id }
+  Sets the folder where new uploads are stored. The folder must exist on Drive.
+  Returns: { folder_id, folder_name }
+
+GET  /api/drive/folders?parentId=<id>
+  Auth: admin
+  Lists subfolders of the given parent. Omit parentId to list top-level Drive folders.
+  Returns: { folders: [ { id, name } ] }
+
+GET  /api/drive/settings
+  Auth: admin
+  Returns: { client_email, project_id, source }
+  source is "database" if the key was uploaded via the UI, "environment" otherwise.
+
+PUT  /api/drive/settings
+  Auth: admin
+  Body: { service_account_key }  — full JSON service account key as a string
+  Validates and saves the key to the database. Also resets the Drive client auth.
+  Returns: { ok: true, client_email, project_id }
+
+GET  /api/drive/watcher-status
+  Auth: admin
+  Returns: { paused: bool, consecutiveFailures: number }
+  Indicates if the Drive watcher job has paused due to repeated failures.
+```
+
+### Users
+
+```
+GET  /api/users/avatars/:filename
+  No auth required — filenames are UUID-based and not guessable.
+  Serves a user avatar image.
+
+GET  /api/users/me
+  Returns the current user's profile, including has_password (bool).
+
+PATCH /api/users/me
+  Body: { name }
+  Updates the current user's display name.
+
+POST /api/users/me/avatar
+  Body: multipart/form-data — image file (jpeg, png, webp, gif)
+  Resizes to 256×256, saves as JPEG, and updates avatar_url.
+
+POST /api/users/me/password
+  Body: { current_password?, new_password }
+  Sets or changes the current user's password.
+  current_password is required if the account already has a password.
+
+GET  /api/users
+  Auth: admin
+  Returns: { users }  — all users
+
+POST /api/users
+  Auth: admin
+  Body: { email, name, role, password? }
+  Creates a new user. Password is optional; omit for Google-OAuth-only accounts.
+  Returns 201: { user }
+
+PATCH /api/users/:id
+  Auth: admin
+  Body: { name?, role?, status? }
+  Updates a user's name, role, or status (active | deactivated).
+  Deactivating a user immediately invalidates all their refresh tokens.
+  Returns: { user }
+
+DELETE /api/users/:id
+  Auth: admin
+  Hard-deletes the user record. Use PATCH status=deactivated instead to preserve
+  audit history. Returns 204.
 ```
 
 ### Background Jobs
@@ -588,6 +745,7 @@ GET /api/health
 | `POST /api/auth/login`, `/refresh` | 10 req/min per IP |
 | `GET /api/search` | 30 req/min per user |
 | `POST /api/assets/bulk-download` | 5 req/min per user |
+| `POST /api/assets/bulk-tag` | 30 req/min per user |
 | All other endpoints | 120 req/min per user |
 
 Exceeded limits return `429 Too Many Requests` with a `Retry-After` header.
@@ -677,11 +835,15 @@ If no refresh is sent within 60 seconds of token expiry, the server closes the c
 
 ### Tagging
 
-Tags are free-form key-value pairs. Common tag keys: `colour`, `season`, `sku`, `category`, `shoot_location`. There is no fixed schema — use any keys your team agrees on.
+Tags are key-value pairs. Common tag keys: `colour`, `season`, `sku`, `category`, `shoot_location`.
 
-To add or edit tags on an asset, open its detail panel and click any tag chip or the **+** button. Key and value autocomplete suggest existing keys and values used across the library.
+To add or edit tags on an asset, open its detail panel and click any tag chip or the **+** button. Key and value fields suggest existing keys and values as you type.
 
 Tag values are searchable immediately after saving (the search index refreshes automatically).
+
+**Tag taxonomy:** Admins can define an official vocabulary of keys and their allowed values in Admin → Tags. Once defined, tag inputs show dropdowns instead of free-text fields — reducing typos and keeping tagging consistent. Free-form values are still accepted if a user types one that isn't in the taxonomy.
+
+**Bulk tagging:** Select multiple assets in the library and click **Tag selected** in the bulk action bar. Choose keys/values from the taxonomy dropdowns and apply to all selected assets at once.
 
 ### Searching
 
@@ -696,12 +858,18 @@ Search results are ranked: SKU matches score highest, then product title, then t
 
 ### Linking assets to products
 
+**From the asset detail panel:**
 1. Open an asset's detail panel.
 2. In the **Linked Products** section, click **Link to product**.
 3. Search for a product by name.
 4. Optionally select a specific variant (e.g. a colour swatch for one variant).
 5. Set a role: `hero` (primary product image), `gallery`, or `swatch`.
 6. Drag to reorder linked assets within a product.
+
+**Bulk link from the library:**
+1. Select multiple assets in the library using the checkboxes.
+2. Click **Link to product** in the bulk action bar.
+3. Search for a product and confirm. All selected assets are linked at once (role defaults to `gallery`; already-linked assets are silently skipped).
 
 Assets can be linked to multiple products and multiple variants. The same asset can serve as `hero` for one product and `gallery` for another.
 
@@ -747,6 +915,26 @@ Topics to register: `products/create`, `products/update`, `products/delete`.
 The CMS polls Google Drive every 5 minutes for changes. Files added directly to the Team Drive (outside the CMS) appear in the library as untagged assets. Renamed or moved files are reflected automatically. Files trashed on Drive are archived in the CMS.
 
 To tag a batch of Drive-scanned files, filter the library by **Uploaded by: Drive** and use bulk tag.
+
+### Admin Settings
+
+**Users tab:** Create, edit, and deactivate users. Assign roles (admin / editor / viewer). Deactivating a user invalidates all their sessions immediately. Hard-delete is available but deactivation is recommended to preserve the audit trail.
+
+**Tags tab:** Manage the tag taxonomy — define official keys and their suggested values. Once set, tag inputs in the UI show dropdown suggestions instead of free text.
+
+**Drive tab:** View the connected Google Drive service account. Set the upload folder (newly uploaded files go here). Update the service account key without restarting the stack. Check the Drive watcher status — if it shows as paused, it has hit 5 consecutive failures and needs investigation.
+
+**Shopify tab:** View and update Shopify credentials (store domain, API token, webhook secret). Stored values override the `.env` entries without a restart.
+
+**Jobs tab:** Background job dashboard with status and progress for running and recent jobs.
+
+### Profile
+
+Every user can update their own profile from the account menu:
+
+- **Display name** — edit inline.
+- **Profile picture** — upload any image; stored as a 256×256 JPEG.
+- **Password** — set or change an email/password login credential. Not required if you sign in exclusively via Google OAuth; provide the existing password when changing it.
 
 ---
 
