@@ -137,6 +137,36 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // ── POST /api/products/:id/assets/bulk — link multiple assets at once ────
+  fastify.post(
+    '/:id/assets/bulk',
+    { preHandler: [authenticate, requireRole('editor', 'admin')] },
+    async (request, reply) => {
+      const { id: productId } = request.params as { id: string };
+      const body = request.body as { assetIds?: unknown; role?: string };
+
+      if (!Array.isArray(body.assetIds) || body.assetIds.length === 0) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'assetIds must be a non-empty array' } });
+      }
+
+      const role = body.role ?? 'gallery';
+      let linked = 0;
+      let skipped = 0;
+
+      for (const assetId of body.assetIds as string[]) {
+        try {
+          await linkAssetToProduct(assetId, productId, null, role, 0);
+          linked++;
+        } catch (err) {
+          if (err instanceof DuplicateLinkError) { skipped++; continue; }
+          throw err;
+        }
+      }
+
+      return reply.status(201).send({ linked, skipped });
+    }
+  );
+
   // ── POST /api/products/:id/assets/reorder ─────────────────────────────────
   fastify.post(
     '/:id/assets/reorder',

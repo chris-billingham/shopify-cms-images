@@ -450,7 +450,11 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
   const [showBulkTag, setShowBulkTag] = useState(false);
   const [bulkTagKey, setBulkTagKey] = useState('');
   const [bulkTagValue, setBulkTagValue] = useState('');
-  const { canUpload } = usePermissions();
+  const [showBulkLink, setShowBulkLink] = useState(false);
+  const [bulkLinkSearch, setBulkLinkSearch] = useState('');
+  const [debouncedBulkLinkSearch, setDebouncedBulkLinkSearch] = useState('');
+  const [bulkLinkResult, setBulkLinkResult] = useState<{ productTitle: string; linked: number; skipped: number } | null>(null);
+  const { canUpload, canLinkProducts } = usePermissions();
   const token = useAuthStore((s) => s.accessToken);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -480,6 +484,38 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
     queryFn: async () => {
       const { data } = await apiClient.get<{ taxonomy: Record<string, string[]> }>('/tags/taxonomy');
       return data.taxonomy;
+    },
+  });
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedBulkLinkSearch(bulkLinkSearch), 300);
+    return () => clearTimeout(t);
+  }, [bulkLinkSearch]);
+
+  const { data: bulkLinkProducts } = useQuery({
+    queryKey: ['products-search-bulk', debouncedBulkLinkSearch],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ products: { id: string; title: string; shopify_id: string | null }[] }>('/products', {
+        params: { q: debouncedBulkLinkSearch, limit: 10 },
+      });
+      return data.products;
+    },
+    enabled: debouncedBulkLinkSearch.length > 0,
+  });
+
+  const bulkLink = useMutation({
+    mutationFn: async ({ productId, assetIds }: { productId: string; assetIds: string[] }) => {
+      const { data } = await apiClient.post<{ linked: number; skipped: number }>(
+        `/products/${productId}/assets/bulk`,
+        { assetIds }
+      );
+      return data;
+    },
+    onSuccess: (data, { productId }) => {
+      const product = bulkLinkProducts?.find((p) => p.id === productId);
+      setBulkLinkResult({ productTitle: product?.title ?? 'product', linked: data.linked, skipped: data.skipped });
+      setBulkLinkSearch('');
+      setTimeout(() => setBulkLinkResult(null), 4000);
     },
   });
 
@@ -549,11 +585,18 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
             <strong>{selectedIds.size} selected</strong>
             <button
               className="btn-sketch sm"
-              onClick={() => setShowBulkTag((v) => !v)}
+              onClick={() => { setShowBulkTag((v) => !v); setShowBulkLink(false); }}
             >
               ＋ tag
             </button>
-            <button className="btn-sketch sm" disabled title="Not yet implemented" style={{ opacity: 0.4 }}>link to product…</button>
+            {canLinkProducts && (
+              <button
+                className="btn-sketch sm"
+                onClick={() => { setShowBulkLink((v) => !v); setShowBulkTag(false); }}
+              >
+                link to product…
+              </button>
+            )}
             <button
               className="btn-sketch sm"
               onClick={() => bulkDownload.mutate([...selectedIds])}
@@ -650,6 +693,105 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
             </div>
           );
         })()}
+
+        {/* Bulk link form */}
+        {showBulkLink && selectedIds.size > 0 && (
+          <div style={{
+            marginBottom: 10,
+            padding: '8px 12px',
+            border: '1.5px dashed var(--ink)',
+            background: 'var(--paper-2)',
+            fontSize: 13,
+            position: 'relative',
+          }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+                link {selectedIds.size} asset{selectedIds.size > 1 ? 's' : ''} to:
+              </span>
+              <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
+                <input
+                  type="text"
+                  placeholder="search products to link…"
+                  value={bulkLinkSearch}
+                  onChange={(e) => setBulkLinkSearch(e.target.value)}
+                  className="sketch-input"
+                  style={{ width: '100%' }}
+                  autoFocus
+                />
+                {bulkLinkSearch.length > 0 && bulkLinkProducts && bulkLinkProducts.length > 0 && (
+                  <ul style={{
+                    position: 'absolute',
+                    zIndex: 20,
+                    width: '100%',
+                    marginTop: 2,
+                    background: '#fff',
+                    border: '1.5px solid var(--ink)',
+                    boxShadow: '3px 3px 0 var(--shadow)',
+                    maxHeight: 200,
+                    overflowY: 'auto',
+                    listStyle: 'none',
+                    padding: 0,
+                  }}>
+                    {bulkLinkProducts.map((product) => (
+                      <li key={product.id}>
+                        <button
+                          onClick={() => bulkLink.mutate({ productId: product.id, assetIds: [...selectedIds] })}
+                          disabled={bulkLink.isPending}
+                          style={{
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '6px 10px',
+                            fontSize: 13,
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontFamily: "'Architects Daughter', sans-serif",
+                            color: 'var(--ink)',
+                            borderBottom: '1px dashed var(--ink-soft)',
+                          }}
+                        >
+                          {product.title}
+                          {product.shopify_id && (
+                            <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--green)' }}>Shopify</span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {bulkLinkSearch.length > 0 && bulkLinkProducts?.length === 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    zIndex: 20,
+                    width: '100%',
+                    marginTop: 2,
+                    background: '#fff',
+                    border: '1.5px solid var(--ink)',
+                    padding: '8px 10px',
+                    fontSize: 13,
+                    color: 'var(--ink-soft)',
+                  }}>
+                    No products found.
+                  </div>
+                )}
+              </div>
+              <button className="btn-sketch sm" onClick={() => { setShowBulkLink(false); setBulkLinkSearch(''); setBulkLinkResult(null); }}>
+                cancel
+              </button>
+            </div>
+            {bulkLinkResult && (
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-soft)', fontFamily: "'JetBrains Mono', monospace" }}>
+                ✓ linked {bulkLinkResult.linked} to {bulkLinkResult.productTitle}
+                {bulkLinkResult.skipped > 0 && ` · ${bulkLinkResult.skipped} already linked`}
+              </div>
+            )}
+            {bulkLink.isError && (
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--accent)', fontFamily: "'JetBrains Mono', monospace" }}>
+                Failed to link — try again
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Search row */}
         <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
