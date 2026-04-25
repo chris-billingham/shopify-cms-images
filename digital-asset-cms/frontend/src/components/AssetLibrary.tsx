@@ -475,6 +475,14 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
     },
   });
 
+  const { data: taxonomy } = useQuery({
+    queryKey: ['tags', 'taxonomy'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ taxonomy: Record<string, string[]> }>('/tags/taxonomy');
+      return data.taxonomy;
+    },
+  });
+
   const bulkTag = useMutation({
     mutationFn: async ({ ids, key, value }: { ids: string[]; key: string; value: string }) => {
       await apiClient.post('/assets/bulk-tag', { asset_ids: ids, tags: { [key]: value }, mode: 'merge' });
@@ -570,45 +578,78 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
         )}
 
         {/* Bulk tag form */}
-        {showBulkTag && selectedIds.size > 0 && (
-          <div style={{
-            display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10,
-            padding: '8px 12px',
-            border: '1.5px dashed var(--ink)',
-            background: 'var(--paper-2)',
-            fontSize: 13,
-          }}>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>tag {selectedIds.size} assets:</span>
-            <input
-              placeholder="key"
-              value={bulkTagKey}
-              onChange={(e) => setBulkTagKey(e.target.value)}
-              className="sketch-input"
-              style={{ width: 100 }}
-            />
-            <input
-              placeholder="value"
-              value={bulkTagValue}
-              onChange={(e) => setBulkTagValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && bulkTagKey.trim() && bulkTagValue.trim()) {
-                  bulkTag.mutate({ ids: [...selectedIds], key: bulkTagKey.trim(), value: bulkTagValue.trim() });
-                }
-              }}
-              className="sketch-input"
-              style={{ width: 120 }}
-            />
-            <button
-              className="btn-sketch sm primary"
-              disabled={!bulkTagKey.trim() || !bulkTagValue.trim() || bulkTag.isPending}
-              onClick={() => bulkTag.mutate({ ids: [...selectedIds], key: bulkTagKey.trim(), value: bulkTagValue.trim() })}
-            >
-              {bulkTag.isPending ? '…' : 'apply'}
-            </button>
-            <button className="btn-sketch sm" onClick={() => setShowBulkTag(false)}>cancel</button>
-            {bulkTag.isError && <span style={{ fontSize: 11, color: 'var(--accent)' }}>Failed — try again</span>}
-          </div>
-        )}
+        {showBulkTag && selectedIds.size > 0 && (() => {
+          const taxKeys = taxonomy ? Object.keys(taxonomy) : [];
+          const allowedValues = taxonomy && bulkTagKey ? (taxonomy[bulkTagKey] ?? []) : [];
+          const inputStyle: React.CSSProperties = {
+            border: '1.5px solid var(--ink)',
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 12,
+            padding: '3px 6px',
+            background: '#fff',
+            width: 110,
+          };
+          const applyBulkTag = () => {
+            if (bulkTagKey.trim() && bulkTagValue.trim()) {
+              bulkTag.mutate({ ids: [...selectedIds], key: bulkTagKey.trim(), value: bulkTagValue.trim() });
+            }
+          };
+          return (
+            <div style={{
+              display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10,
+              padding: '8px 12px',
+              border: '1.5px dashed var(--ink)',
+              background: 'var(--paper-2)',
+              fontSize: 13,
+            }}>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>tag {selectedIds.size} assets:</span>
+              {taxKeys.length > 0 ? (
+                <select
+                  value={bulkTagKey}
+                  onChange={(e) => { setBulkTagKey(e.target.value); setBulkTagValue(''); }}
+                  style={inputStyle}
+                >
+                  <option value="">key…</option>
+                  {taxKeys.map((k) => <option key={k} value={k}>{k}</option>)}
+                </select>
+              ) : (
+                <input
+                  placeholder="key"
+                  value={bulkTagKey}
+                  onChange={(e) => setBulkTagKey(e.target.value)}
+                  style={inputStyle}
+                />
+              )}
+              {allowedValues.length > 0 ? (
+                <select
+                  value={bulkTagValue}
+                  onChange={(e) => setBulkTagValue(e.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="">value…</option>
+                  {allowedValues.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              ) : (
+                <input
+                  placeholder="value"
+                  value={bulkTagValue}
+                  onChange={(e) => setBulkTagValue(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && applyBulkTag()}
+                  style={inputStyle}
+                />
+              )}
+              <button
+                className="btn-sketch sm primary"
+                disabled={!bulkTagKey.trim() || !bulkTagValue.trim() || bulkTag.isPending}
+                onClick={applyBulkTag}
+              >
+                {bulkTag.isPending ? '…' : 'apply'}
+              </button>
+              <button className="btn-sketch sm" onClick={() => setShowBulkTag(false)}>cancel</button>
+              {bulkTag.isError && <span style={{ fontSize: 11, color: 'var(--accent)' }}>Failed — try again</span>}
+            </div>
+          );
+        })()}
 
         {/* Search row */}
         <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
