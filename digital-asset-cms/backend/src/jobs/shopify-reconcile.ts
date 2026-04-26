@@ -101,9 +101,11 @@ export async function runImportImages(
           )
           .first();
         if (existing) {
-          // Backfill shopify_image_id if it was missing (imported before this column existed)
-          if (!existing.shopify_image_id) {
-            await db('assets').where('id', existing.id).update({ shopify_image_id: String(image.id) });
+          const backfill: Record<string, unknown> = {};
+          if (!existing.shopify_image_id) backfill['shopify_image_id'] = String(image.id);
+          if (existing.alt_text == null && image.alt) backfill['alt_text'] = image.alt;
+          if (Object.keys(backfill).length > 0) {
+            await db('assets').where('id', existing.id).update(backfill);
           }
           skipped++;
           continue;
@@ -122,9 +124,6 @@ export async function runImportImages(
           activeFolderId
         );
 
-        const tags: Record<string, string> = {};
-        if (image.alt) tags['alt'] = image.alt;
-
         const [asset] = await db('assets')
           .insert({
             file_name: fileName,
@@ -134,7 +133,8 @@ export async function runImportImages(
             google_drive_id: driveId,
             google_drive_url: webViewLink || null,
             status: 'active',
-            tags: JSON.stringify(tags),
+            tags: JSON.stringify({}),
+            alt_text: image.alt ?? null,
             shopify_image_id: String(image.id),
             version: 1,
           })

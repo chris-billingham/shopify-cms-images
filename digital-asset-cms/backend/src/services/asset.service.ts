@@ -165,6 +165,7 @@ export async function getAsset(id: string): Promise<Record<string, unknown>> {
 export interface UpdateAssetInput {
   fileName?: string;
   tags?: Record<string, string>;
+  altText?: string | null;
 }
 
 export async function updateAsset(
@@ -187,6 +188,10 @@ export async function updateAsset(
 
   if (changes.fileName !== undefined) {
     updateData['file_name'] = changes.fileName;
+  }
+
+  if (changes.altText !== undefined) {
+    updateData['alt_text'] = changes.altText;
   }
 
   if (changes.tags !== undefined) {

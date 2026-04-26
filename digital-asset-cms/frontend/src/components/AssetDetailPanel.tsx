@@ -11,8 +11,9 @@ interface AssetDetailPanelProps {
   isMobile?: boolean;
 }
 
-interface TagUpdatePayload {
-  tags: Record<string, string>;
+interface PatchAssetPayload {
+  tags?: Record<string, string>;
+  altText?: string | null;
   updatedAt: string;
 }
 
@@ -36,9 +37,12 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
   const [productSearch, setProductSearch] = useState('');
   const [debouncedProductSearch, setDebouncedProductSearch] = useState('');
   const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'done' | 'error'>('idle');
+  const [pushAltStatus, setPushAltStatus] = useState<'idle' | 'pushing' | 'done' | 'error'>('idle');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [newTagKey, setNewTagKey] = useState('');
   const [newTagValue, setNewTagValue] = useState('');
+  const [editingAlt, setEditingAlt] = useState(false);
+  const [altDraft, setAltDraft] = useState('');
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedProductSearch(productSearch), 300);
@@ -89,16 +93,20 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
   });
 
   const patchAsset = useMutation({
-    mutationFn: async (payload: TagUpdatePayload) => {
+    mutationFn: async (payload: PatchAssetPayload) => {
       const { data } = await apiClient.patch(`/assets/${asset.id}`, payload);
       return data;
     },
-    onMutate: async (payload: TagUpdatePayload) => {
+    onMutate: async (payload: PatchAssetPayload) => {
       await queryClient.cancelQueries({ queryKey: ['asset', asset.id] });
       const previous = queryClient.getQueryData<Asset>(['asset', asset.id]);
-      queryClient.setQueryData<Asset>(['asset', asset.id], (old) =>
-        old ? { ...old, tags: payload.tags } : old,
-      );
+      queryClient.setQueryData<Asset>(['asset', asset.id], (old) => {
+        if (!old) return old;
+        const next = { ...old };
+        if (payload.tags !== undefined) next.tags = payload.tags;
+        if (payload.altText !== undefined) next.alt_text = payload.altText;
+        return next;
+      });
       return { previous };
     },
     onError: (error: unknown, _variables, context) => {
@@ -175,8 +183,37 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
     queryClient.invalidateQueries({ queryKey: ['asset', asset.id] });
   };
 
+  const handleAltEdit = () => {
+    setAltDraft(liveAsset.alt_text ?? '');
+    setEditingAlt(true);
+  };
+
+  const handleAltSave = () => {
+    const trimmed = altDraft.trim();
+    patchAsset.mutate({ altText: trimmed || null, updatedAt: liveAsset.updated_at });
+    setEditingAlt(false);
+  };
+
+  const handleAltRemove = () => {
+    patchAsset.mutate({ altText: null, updatedAt: liveAsset.updated_at });
+    setEditingAlt(false);
+  };
+
+  const handlePushAltToShopify = async () => {
+    setPushAltStatus('pushing');
+    try {
+      await apiClient.post(`/shopify/push-alt/${asset.id}`);
+      setPushAltStatus('done');
+      setTimeout(() => setPushAltStatus('idle'), 3000);
+    } catch {
+      setPushAltStatus('error');
+      setTimeout(() => setPushAltStatus('idle'), 3000);
+    }
+  };
+
   const linkedProducts = linkedData ?? [];
   const hasShopifyLink = linkedProducts.some((p) => p.shopify_id);
+  const canPushAlt = canPushToShopify && hasShopifyLink && !!liveAsset.shopify_image_id;
 
   const fileSizeMB = (liveAsset.file_size / (1024 * 1024)).toFixed(1);
 
@@ -402,6 +439,59 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
           );
         })()}
 
+        {/* Alt text */}
+        <div className="section-h">Alt text</div>
+        {editingAlt ? (
+          <div style={{ marginBottom: 8 }}>
+            <textarea
+              value={altDraft}
+              onChange={(e) => setAltDraft(e.target.value)}
+              rows={3}
+              placeholder="Describe the image for accessibility…"
+              style={{
+                width: '100%',
+                border: '1.5px solid var(--ink)',
+                fontFamily: "'Architects Daughter', sans-serif",
+                fontSize: 13,
+                padding: '4px 6px',
+                background: '#fff',
+                resize: 'vertical',
+                boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+              <button className="btn-sketch sm primary" onClick={handleAltSave} disabled={patchAsset.isPending}>
+                save
+              </button>
+              <button className="btn-sketch sm ghost" onClick={() => setEditingAlt(false)}>
+                cancel
+              </button>
+              {liveAsset.alt_text && (
+                <button className="btn-sketch sm danger" onClick={handleAltRemove} disabled={patchAsset.isPending}>
+                  remove
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 8 }}>
+            <span style={{
+              flex: 1,
+              fontSize: 13,
+              fontFamily: "'Architects Daughter', sans-serif",
+              color: liveAsset.alt_text ? 'var(--ink)' : 'var(--ink-soft)',
+              fontStyle: liveAsset.alt_text ? 'normal' : 'italic',
+            }}>
+              {liveAsset.alt_text || 'No alt text'}
+            </span>
+            {canEditTags && (
+              <button className="btn-sketch sm ghost" onClick={handleAltEdit}>
+                edit
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Linked products */}
         <div className="section-h">Linked products</div>
         {linkedProducts.map((link) => (
@@ -519,6 +609,19 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
              pushStatus === 'done'    ? 'Pushed ✓' :
              pushStatus === 'error'   ? 'Push failed' :
              '▲ Push to Shopify'}
+          </button>
+        )}
+
+        {canPushAlt && (
+          <button
+            onClick={handlePushAltToShopify}
+            disabled={pushAltStatus === 'pushing'}
+            className={`btn-sketch shop`}
+          >
+            {pushAltStatus === 'pushing' ? 'Pushing…' :
+             pushAltStatus === 'done'    ? 'Alt pushed ✓' :
+             pushAltStatus === 'error'   ? 'Push failed' :
+             '▲ Push alt text'}
           </button>
         )}
 

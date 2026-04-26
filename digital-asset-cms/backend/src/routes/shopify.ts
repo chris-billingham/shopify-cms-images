@@ -189,6 +189,54 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // ── POST /api/shopify/push-alt/:assetId — push alt text to Shopify (admin) ─
+  fastify.post(
+    '/push-alt/:assetId',
+    { preHandler: [authenticate, requireRole('admin')] },
+    async (request, reply) => {
+      const { assetId } = request.params as { assetId: string };
+
+      const asset = await db('assets').where('id', assetId).whereNot('status', 'deleted').first();
+      if (!asset) {
+        return reply.status(404).send({ error: { code: 'ASSET_NOT_FOUND', message: `Asset ${assetId} not found` } });
+      }
+
+      if (!asset.shopify_image_id) {
+        return reply.status(400).send({
+          error: { code: 'NO_SHOPIFY_IMAGE', message: 'Asset has no Shopify image ID — push the image to Shopify first' },
+        });
+      }
+
+      const link = await db('asset_products as ap')
+        .join('products as p', 'ap.product_id', 'p.id')
+        .where('ap.asset_id', assetId)
+        .whereNotNull('p.shopify_id')
+        .select('p.shopify_id')
+        .first();
+
+      if (!link) {
+        return reply.status(400).send({
+          error: { code: 'NO_SHOPIFY_PRODUCT', message: 'Asset is not linked to a product with a Shopify ID' },
+        });
+      }
+
+      const creds = await getActiveShopifyCredentials();
+      await createShopifyService(creds).updateImageAlt(
+        String(link.shopify_id),
+        String(asset.shopify_image_id),
+        (asset.alt_text as string | null) ?? null
+      );
+
+      await auditService.log(request.user!.user_id, 'push_alt_shopify', 'asset', assetId, {
+        shopify_product_id: String(link.shopify_id),
+        shopify_image_id: String(asset.shopify_image_id),
+        alt_text: asset.alt_text ?? null,
+      });
+
+      return reply.send({ success: true });
+    }
+  );
+
   // ── POST /api/shopify/webhooks — HMAC-verified, no auth middleware ─────────
   // Must be in a scoped plugin to override the JSON content type parser
   await fastify.register(async (webhookScope) => {

@@ -17,6 +17,8 @@ export interface Asset {
   file_size: number;
   mime_type: string;
   tags: Record<string, string>;
+  alt_text?: string | null;
+  shopify_image_id?: string | null;
   version: number;
   created_at: string;
   updated_at: string;

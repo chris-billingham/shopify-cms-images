@@ -292,6 +292,7 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
       const body = request.body as {
         tags?: Record<string, string>;
         fileName?: string;
+        altText?: string | null;
         updatedAt: string;
       };
 
@@ -304,7 +305,7 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const asset = await updateAsset(
           id,
-          { tags: body.tags, fileName: body.fileName },
+          { tags: body.tags, fileName: body.fileName, altText: body.altText },
           body.updatedAt,
           request.user!.user_id
         );
