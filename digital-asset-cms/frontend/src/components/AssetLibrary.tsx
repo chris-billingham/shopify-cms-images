@@ -343,6 +343,18 @@ function AssetCard({
             {skuTag}
           </span>
         )}
+
+        {/* Shopify image deleted badge */}
+        {asset.shopify_image_deleted && (
+          <span style={{
+            position: 'absolute', bottom: 6, left: 6,
+            fontSize: 10, padding: '1px 5px',
+            background: '#ff4444', color: '#fff',
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            shopify deleted
+          </span>
+        )}
       </div>
 
       {/* Meta */}

@@ -185,6 +185,23 @@ export function createDriveService(options?: {
     );
   }
 
+  async function renameFile(driveId: string, newName: string): Promise<void> {
+    return limiter.schedule(() =>
+      withRetry(async () => {
+        const drive = await getDrive();
+        try {
+          await drive.files.update({
+            fileId: driveId,
+            requestBody: { name: newName },
+            supportsAllDrives: true,
+          });
+        } catch (err) {
+          throw normaliseError(err);
+        }
+      }, retryOpts)
+    );
+  }
+
   async function getChecksum(driveId: string): Promise<string | null> {
     const file = await getFile(driveId);
     return file.md5Checksum ?? null;
@@ -267,7 +284,7 @@ export function createDriveService(options?: {
     return uploadParentId;
   }
 
-  return { uploadFile, downloadFile, getFile, trashFile, getChecksum, getThumbnailUrl, listFiles, listFolders, getFolderInfo, getDefaultFolderId, resetAuth };
+  return { uploadFile, downloadFile, getFile, trashFile, renameFile, getChecksum, getThumbnailUrl, listFiles, listFolders, getFolderInfo, getDefaultFolderId, resetAuth };
 }
 
 export type DriveService = ReturnType<typeof createDriveService>;

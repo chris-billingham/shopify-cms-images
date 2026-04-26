@@ -248,8 +248,56 @@ export async function runReconciliation(
       }
     }
 
+    // ── Check Shopify image status for assets with a shopify_image_id ──────────
+    const assetsWithImage = await db('assets')
+      .whereNotNull('shopify_image_id')
+      .whereNot('status', 'deleted')
+      .select('id', 'shopify_image_id');
+
+    let imagesMarkedDeleted = 0;
+    let imagesRestored = 0;
+
+    if (assetsWithImage.length > 0) {
+      const assetIds = assetsWithImage.map((a) => a.id as string);
+
+      // Find all linked Shopify product IDs for these assets
+      const links = await db('asset_products as ap')
+        .join('products as p', 'ap.product_id', 'p.id')
+        .whereIn('ap.asset_id', assetIds)
+        .whereNotNull('p.shopify_id')
+        .select('ap.asset_id', 'p.shopify_id');
+
+      // Fetch images once per unique Shopify product
+      const uniqueProductIds = [...new Set(links.map((l) => String(l.shopify_id)))];
+      const liveImagesByProduct = new Map<string, Set<string>>();
+      for (const shopifyProductId of uniqueProductIds) {
+        const images = await shopify.fetchProductImages(shopifyProductId);
+        liveImagesByProduct.set(shopifyProductId, new Set(images.map((i) => String(i.id))));
+      }
+
+      // Map assetId → shopify product IDs it's linked to
+      const assetToProducts = new Map<string, string[]>();
+      for (const link of links) {
+        const existing = assetToProducts.get(link.asset_id as string) ?? [];
+        existing.push(String(link.shopify_id));
+        assetToProducts.set(link.asset_id as string, existing);
+      }
+
+      for (const asset of assetsWithImage) {
+        const linkedProductIds = assetToProducts.get(asset.id as string);
+        if (!linkedProductIds?.length) continue;
+
+        const imageId = String(asset.shopify_image_id);
+        const exists = linkedProductIds.some((pid) => liveImagesByProduct.get(pid)?.has(imageId));
+
+        await db('assets').where('id', asset.id).update({ shopify_image_deleted: !exists });
+        if (!exists) imagesMarkedDeleted++;
+        else imagesRestored++;
+      }
+    }
+
     await refreshSearchView().catch(() => {});
-    await completeJob(jobId, { created, updated, orphaned });
+    await completeJob(jobId, { created, updated, orphaned, images_marked_deleted: imagesMarkedDeleted, images_restored: imagesRestored });
   } catch (err) {
     await failJob(jobId, err instanceof Error ? err.message : String(err));
   }

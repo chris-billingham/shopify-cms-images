@@ -19,6 +19,7 @@ export interface Asset {
   tags: Record<string, string>;
   alt_text?: string | null;
   shopify_image_id?: string | null;
+  shopify_image_deleted?: boolean;
   version: number;
   created_at: string;
   updated_at: string;

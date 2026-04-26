@@ -4,10 +4,9 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 import { db } from '../db/connection.js';
 import { driveService } from '../services/drive.service.js';
-import { createShopifyService } from '../services/shopify.service.js';
+import { createShopifyService, getActiveShopifyCredentials } from '../services/shopify.service.js';
 import { upsertProduct } from '../services/product.service.js';
 import * as auditService from '../services/audit.service.js';
-import { config } from '../config/index.js';
 import {
   submitSyncProducts,
   submitImportImages,
@@ -18,21 +17,6 @@ import {
 } from '../jobs/shopify-reconcile.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-const SETTING_KEYS = ['shopify_store_domain', 'shopify_admin_api_token', 'shopify_webhook_secret'] as const;
-
-async function getActiveShopifyCredentials() {
-  const rows = await db('system_settings').whereIn('key', SETTING_KEYS).select('key', 'value');
-  const m: Record<string, string> = {};
-  for (const row of rows) {
-    if (row.value) m[row.key as string] = row.value as string;
-  }
-  return {
-    storeDomain: m['shopify_store_domain'] ?? config.SHOPIFY_STORE_DOMAIN,
-    apiToken: m['shopify_admin_api_token'] ?? config.SHOPIFY_ADMIN_API_TOKEN,
-    webhookSecret: m['shopify_webhook_secret'] ?? config.SHOPIFY_WEBHOOK_SECRET,
-  };
-}
 
 function maskSecret(value: string): string {
   return value.length > 4 ? '••••••••' + value.slice(-4) : '••••';
@@ -54,7 +38,7 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
     { preHandler: [authenticate, requireRole('admin')] },
     async (_request, reply) => {
       const creds = await getActiveShopifyCredentials();
-      const rows = await db('system_settings').whereIn('key', SETTING_KEYS).select('key', 'value');
+      const rows = await db('system_settings').whereIn('key', ['shopify_store_domain', 'shopify_admin_api_token', 'shopify_webhook_secret']).select('key', 'value');
       const stored = new Set(rows.filter((r) => r.value).map((r) => r.key as string));
 
       return reply.send({
@@ -174,8 +158,8 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
 
       const shopifyImageId = String(shopifyImage.id);
 
-      // Store shopify_image_id on asset
-      await db('assets').where('id', assetId).update({ shopify_image_id: shopifyImageId });
+      // Store shopify_image_id on asset and clear any deleted flag
+      await db('assets').where('id', assetId).update({ shopify_image_id: shopifyImageId, shopify_image_deleted: false });
 
       // Audit log
       await auditService.log(request.user!.user_id, 'push_shopify', 'asset', assetId, {

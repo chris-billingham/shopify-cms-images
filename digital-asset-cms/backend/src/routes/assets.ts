@@ -8,6 +8,7 @@ import {
   createAsset,
   getAsset,
   updateAsset,
+  renameAsset,
   softDeleteAsset,
   downloadAsset,
   checkDuplicate,
@@ -18,8 +19,10 @@ import {
   bulkTagAssets,
   AssetValidationError,
   AssetNotFoundError,
+  AssetNameConflictError,
   OptimisticLockError,
 } from '../services/asset.service.js';
+import { submitShopifyRenamePush, runShopifyRenamePush } from '../jobs/shopify-rename-push.js';
 import { openThumbnailStream } from '../services/thumbnail.service.js';
 import { driveService } from '../services/drive.service.js';
 import * as auditService from '../services/audit.service.js';
@@ -316,6 +319,50 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
         }
         if (err instanceof OptimisticLockError) {
           return reply.status(409).send({ error: { code: 'CONFLICT', message: err.message } });
+        }
+        throw err;
+      }
+    }
+  );
+
+  // ── POST /api/assets/:id/rename ───────────────────────────────────────────
+  fastify.post(
+    '/:id/rename',
+    { preHandler: [authenticate, requireRole('editor', 'admin')] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { newFileName?: string; updatedAt?: string };
+
+      if (!body.newFileName?.trim()) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'newFileName is required' } });
+      }
+      if (!body.updatedAt) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'updatedAt is required' } });
+      }
+
+      try {
+        const asset = await renameAsset(id, body.newFileName.trim(), body.updatedAt, request.user!.user_id);
+
+        let shopifyPushQueued = false;
+        if (asset['shopify_image_id']) {
+          const jobId = await submitShopifyRenamePush(id, request.user!.user_id);
+          void runShopifyRenamePush(jobId, id);
+          shopifyPushQueued = true;
+        }
+
+        return reply.status(200).send({ ...asset, shopifyPushQueued });
+      } catch (err) {
+        if (err instanceof AssetNotFoundError) {
+          return reply.status(404).send({ error: { code: 'ASSET_NOT_FOUND', message: err.message } });
+        }
+        if (err instanceof OptimisticLockError) {
+          return reply.status(409).send({ error: { code: 'CONFLICT', message: err.message } });
+        }
+        if (err instanceof AssetNameConflictError) {
+          return reply.status(409).send({ error: { code: 'NAME_CONFLICT', message: err.message } });
+        }
+        if (err instanceof AssetValidationError) {
+          return reply.status(400).send({ error: { code: err.code, message: err.message } });
         }
         throw err;
       }

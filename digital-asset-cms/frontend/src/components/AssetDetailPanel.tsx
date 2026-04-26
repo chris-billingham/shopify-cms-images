@@ -17,6 +17,11 @@ interface PatchAssetPayload {
   updatedAt: string;
 }
 
+interface RenamePayload {
+  newFileName: string;
+  updatedAt: string;
+}
+
 interface LinkedProduct {
   link_id: string;
   product_id: string;
@@ -43,6 +48,10 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
   const [newTagValue, setNewTagValue] = useState('');
   const [editingAlt, setEditingAlt] = useState(false);
   const [altDraft, setAltDraft] = useState('');
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [shopifyRenameQueued, setShopifyRenameQueued] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedProductSearch(productSearch), 300);
@@ -121,6 +130,35 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
     },
   });
 
+  const renameAssetMutation = useMutation({
+    mutationFn: async (payload: RenamePayload) => {
+      const { data } = await apiClient.post<Asset & { shopifyPushQueued: boolean }>(`/assets/${asset.id}/rename`, payload);
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['asset', asset.id] });
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
+      setEditingName(false);
+      setNameError('');
+      if (data.shopifyPushQueued) setShopifyRenameQueued(true);
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { status: number; data?: { error?: { code: string; message: string } } } };
+      const code = axiosError?.response?.data?.error?.code;
+      const message = axiosError?.response?.data?.error?.message;
+      if (axiosError?.response?.status === 409 && code === 'CONFLICT') {
+        setConflictError(true);
+        setEditingName(false);
+      } else if (code === 'NAME_CONFLICT') {
+        setNameError(message ?? 'A file with that name already exists');
+      } else if (code === 'EXTENSION_CHANGE') {
+        setNameError('File extension cannot be changed');
+      } else {
+        setNameError(message ?? 'Rename failed');
+      }
+    },
+  });
+
   const linkProduct = useMutation({
     mutationFn: async (productId: string) => {
       await apiClient.post(`/products/${productId}/assets`, {
@@ -181,6 +219,22 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
   const handleRefresh = () => {
     setConflictError(false);
     queryClient.invalidateQueries({ queryKey: ['asset', asset.id] });
+  };
+
+  const handleNameEdit = () => {
+    // Pre-fill with base name only (strip extension)
+    const name = liveAsset.file_name;
+    const dotIdx = name.lastIndexOf('.');
+    setNameDraft(dotIdx > 0 ? name.slice(0, dotIdx) : name);
+    setNameError('');
+    setEditingName(true);
+  };
+
+  const handleNameSave = () => {
+    const ext = liveAsset.file_name.slice(liveAsset.file_name.lastIndexOf('.'));
+    const base = nameDraft.trim();
+    if (!base) { setNameError('Name cannot be empty'); return; }
+    renameAssetMutation.mutate({ newFileName: base + ext, updatedAt: liveAsset.updated_at });
   };
 
   const handleAltEdit = () => {
@@ -338,6 +392,89 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
             `[ ${asset.asset_type} — no preview ]`
           )}
         </div>
+
+        {/* Shopify image deleted notice */}
+        {liveAsset.shopify_image_deleted && (
+          <div role="alert" style={{
+            padding: '8px 12px',
+            background: '#fff0f0',
+            border: '1.5px solid var(--ink)',
+            fontSize: 12,
+            marginBottom: 10,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            Image deleted on Shopify. Push again to restore, or remove from CMS below.
+          </div>
+        )}
+
+        {/* Shopify rename queued notice */}
+        {shopifyRenameQueued && (
+          <div role="status" style={{
+            padding: '6px 10px',
+            background: 'var(--yellow-soft)',
+            border: '1.5px solid var(--ink)',
+            fontSize: 12,
+            marginBottom: 10,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            Shopify re-push queued — check Job Dashboard for status
+            <button onClick={() => setShopifyRenameQueued(false)} style={{
+              background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8,
+              fontSize: 12, color: 'var(--ink-soft)',
+            }}>✕</button>
+          </div>
+        )}
+
+        {/* Filename */}
+        <div className="section-h">Filename</div>
+        {editingName ? (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input
+                type="text"
+                value={nameDraft}
+                onChange={(e) => { setNameDraft(e.target.value); setNameError(''); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleNameSave(); if (e.key === 'Escape') setEditingName(false); }}
+                autoFocus
+                style={{
+                  flex: 1,
+                  border: '1.5px solid var(--ink)',
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 12,
+                  padding: '3px 6px',
+                  background: '#fff',
+                }}
+              />
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--ink-soft)', flexShrink: 0 }}>
+                {liveAsset.file_name.slice(liveAsset.file_name.lastIndexOf('.'))}
+              </span>
+            </div>
+            {nameError && (
+              <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 3, fontFamily: "'JetBrains Mono', monospace" }}>
+                {nameError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+              <button className="btn-sketch sm primary" onClick={handleNameSave} disabled={renameAssetMutation.isPending}>
+                save
+              </button>
+              <button className="btn-sketch sm ghost" onClick={() => { setEditingName(false); setNameError(''); }}>
+                cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span style={{ flex: 1, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", wordBreak: 'break-all' }}>
+              {liveAsset.file_name}
+            </span>
+            {canEditTags && (
+              <button className="btn-sketch sm ghost" onClick={handleNameEdit}>
+                edit
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Metadata KV */}
         <div className="kv-row"><span className="kv-key">type</span><span>{asset.mime_type}</span></div>

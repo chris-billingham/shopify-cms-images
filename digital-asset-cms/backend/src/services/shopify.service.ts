@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Readable } from 'stream';
 import { config } from '../config/index.js';
+import { db } from '../db/connection.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,23 @@ export class ShopifyApiError extends Error {
     this.name = 'ShopifyApiError';
     Object.setPrototypeOf(this, new.target.prototype);
   }
+}
+
+// ── Credentials ───────────────────────────────────────────────────────────────
+
+const CREDENTIAL_KEYS = ['shopify_store_domain', 'shopify_admin_api_token', 'shopify_webhook_secret'] as const;
+
+export async function getActiveShopifyCredentials() {
+  const rows = await db('system_settings').whereIn('key', CREDENTIAL_KEYS).select('key', 'value');
+  const m: Record<string, string> = {};
+  for (const row of rows) {
+    if (row.value) m[row.key as string] = row.value as string;
+  }
+  return {
+    storeDomain: m['shopify_store_domain'] ?? config.SHOPIFY_STORE_DOMAIN,
+    apiToken: m['shopify_admin_api_token'] ?? config.SHOPIFY_ADMIN_API_TOKEN,
+    webhookSecret: m['shopify_webhook_secret'] ?? config.SHOPIFY_WEBHOOK_SECRET,
+  };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -193,6 +211,18 @@ export function createShopifyService(options?: {
     if (!response.ok) throw new ShopifyApiError(response.status, `updateImageAlt failed: ${response.status}`);
   }
 
+  async function deleteImage(
+    shopifyProductId: string | number,
+    shopifyImageId: string | number
+  ): Promise<void> {
+    const response = await request(`/products/${shopifyProductId}/images/${shopifyImageId}.json`, {
+      method: 'DELETE',
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new ShopifyApiError(response.status, `deleteImage failed: ${response.status}`);
+    }
+  }
+
   function verifyWebhook(rawBody: Buffer, hmacHeader: string): boolean {
     if (!hmacHeader) return false;
     const digest = crypto.createHmac('sha256', webhookSecret).update(rawBody).digest('base64');
@@ -203,7 +233,7 @@ export function createShopifyService(options?: {
     }
   }
 
-  return { fetchProducts, fetchProductImages, fetchImageStream, pushImage, updateImagePosition, updateImageAlt, verifyWebhook };
+  return { fetchProducts, fetchProductImages, fetchImageStream, pushImage, deleteImage, updateImagePosition, updateImageAlt, verifyWebhook };
 }
 
 export type ShopifyService = ReturnType<typeof createShopifyService>;

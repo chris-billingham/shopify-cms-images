@@ -32,6 +32,14 @@ export class OptimisticLockError extends Error {
   }
 }
 
+export class AssetNameConflictError extends Error {
+  constructor(name: string) {
+    super(`An asset named "${name}" already exists`);
+    this.name = 'AssetNameConflictError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 // ── MIME allowlist per §4.4 ───────────────────────────────────────────────────
 
 type AssetType = 'image' | 'video' | 'text' | 'document' | 'other';
@@ -376,6 +384,56 @@ export async function bulkTagAssets(
   }
   if (updated > 0) await refreshSearchView().catch(() => {});
   return updated;
+}
+
+export async function renameAsset(
+  id: string,
+  newFileName: string,
+  updatedAt: Date | string,
+  userId: string | null,
+  drive: typeof _defaultDriveService = _defaultDriveService
+): Promise<Record<string, unknown>> {
+  const asset = await db('assets').where('id', id).whereNot('status', 'deleted').first();
+  if (!asset) throw new AssetNotFoundError(id);
+
+  const existing = new Date(asset.updated_at).getTime();
+  const requested = new Date(updatedAt).getTime();
+  if (existing !== requested) throw new OptimisticLockError();
+
+  // Validate extension unchanged
+  const oldExt = (asset.file_name as string).slice((asset.file_name as string).lastIndexOf('.'));
+  const newExt = newFileName.slice(newFileName.lastIndexOf('.'));
+  if (oldExt.toLowerCase() !== newExt.toLowerCase()) {
+    throw new AssetValidationError('EXTENSION_CHANGE', 'File extension cannot be changed');
+  }
+
+  // Case-insensitive uniqueness check
+  const conflict = await db('assets')
+    .whereNot('id', id)
+    .whereNot('status', 'deleted')
+    .whereRaw('LOWER(file_name) = LOWER(?)', [newFileName])
+    .first();
+  if (conflict) throw new AssetNameConflictError(newFileName);
+
+  const oldFileName = asset.file_name as string;
+
+  const [updated] = await db('assets')
+    .where('id', id)
+    .update({ file_name: newFileName, updated_at: new Date() })
+    .returning('*');
+
+  try {
+    await drive.renameFile(asset.google_drive_id as string, newFileName);
+  } catch (err) {
+    // Roll back DB on Drive failure
+    await db('assets').where('id', id).update({ file_name: oldFileName, updated_at: asset.updated_at });
+    throw err;
+  }
+
+  await auditService.log(userId, 'rename', 'asset', id, { old_name: oldFileName, new_name: newFileName });
+  await refreshSearchView().catch(() => {});
+
+  return updated as Record<string, unknown>;
 }
 
 export async function getAssetVersions(id: string): Promise<Record<string, unknown>[]> {
