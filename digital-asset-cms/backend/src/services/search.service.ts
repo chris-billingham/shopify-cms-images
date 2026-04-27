@@ -216,70 +216,75 @@ async function computeFacets(
     bindings.push(params.q);
   }
 
-  const whereStr = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
-  // For the UNION ALL query each branch needs its own WHERE clause with extra conditions appended
   const andStr = conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : '';
 
-  const [typeResult, productStatusResult, tagResult] = await Promise.all([
-    db.raw<{ rows: Array<{ asset_type: string; count: number }> }>(
-      `SELECT m.asset_type, COUNT(DISTINCT m.asset_id)::int AS count
-       FROM asset_search_mv m
-       ${whereStr}
-       GROUP BY m.asset_type
-       ORDER BY count DESC`,
-      bindings,
-    ),
-    db.raw<{ rows: Array<{ product_status: string; count: number }> }>(
-      `SELECT 'unlinked' AS product_status, COUNT(DISTINCT m.asset_id)::int AS count
+  // Single query: CTE materialises the filtered set once; UNION ALL branches
+  // compute all three facet groups without extra round trips.
+  const result = await db.raw<{
+    rows: Array<{ facet_group: string; key: string; subkey: string | null; count: string }>;
+  }>(
+    `WITH filtered AS (
+       SELECT m.asset_id, m.asset_type, m.tags
        FROM asset_search_mv m
        WHERE TRUE ${andStr}
-       AND NOT EXISTS (SELECT 1 FROM asset_products ap WHERE ap.asset_id = m.asset_id)
+     )
+     SELECT 'type'::text AS facet_group, asset_type AS key, NULL::text AS subkey,
+            COUNT(DISTINCT asset_id)::int AS count
+     FROM filtered
+     GROUP BY asset_type
 
-       UNION ALL
+     UNION ALL
 
-       SELECT 'linked-unpushed' AS product_status, COUNT(DISTINCT m.asset_id)::int AS count
-       FROM asset_search_mv m
-       WHERE TRUE ${andStr}
-       AND EXISTS (
-         SELECT 1 FROM asset_products ap
-         JOIN products p ON p.id = ap.product_id
-         WHERE ap.asset_id = m.asset_id AND p.shopify_id IS NULL
-       )
+     SELECT 'ps'::text, 'unlinked', NULL,
+            COUNT(DISTINCT f.asset_id)::int
+     FROM filtered f
+     WHERE NOT EXISTS (SELECT 1 FROM asset_products ap WHERE ap.asset_id = f.asset_id)
 
-       UNION ALL
+     UNION ALL
 
-       SELECT p.status AS product_status, COUNT(DISTINCT m.asset_id)::int AS count
-       FROM asset_search_mv m
-       JOIN asset_products ap ON ap.asset_id = m.asset_id
+     SELECT 'ps'::text, 'linked-unpushed', NULL,
+            COUNT(DISTINCT f.asset_id)::int
+     FROM filtered f
+     WHERE EXISTS (
+       SELECT 1 FROM asset_products ap
        JOIN products p ON p.id = ap.product_id
-       WHERE TRUE ${andStr}
-       AND p.shopify_id IS NOT NULL
-       GROUP BY p.status`,
-      [...bindings, ...bindings, ...bindings],
-    ),
-    db.raw<{ rows: Array<{ key: string; value: string; count: number }> }>(
-      `SELECT kv.key, kv.value, COUNT(DISTINCT m.asset_id)::int AS count
-       FROM asset_search_mv m, jsonb_each_text(m.tags) AS kv(key, value)
-       ${whereStr}
-       GROUP BY kv.key, kv.value
-       ORDER BY kv.key, kv.value`,
-      bindings,
-    ),
-  ]);
+       WHERE ap.asset_id = f.asset_id AND p.shopify_id IS NULL
+     )
 
-  const assetTypeFacets: FacetValue[] = typeResult.rows.map((r) => ({
-    value: r.asset_type,
-    count: Number(r.count),
-  }));
+     UNION ALL
 
-  const productStatusFacets: FacetValue[] = productStatusResult.rows
-    .filter((r) => Number(r.count) > 0)
-    .map((r) => ({ value: r.product_status, count: Number(r.count) }));
+     SELECT 'ps'::text, p.status, NULL,
+            COUNT(DISTINCT f.asset_id)::int
+     FROM filtered f
+     JOIN asset_products ap ON ap.asset_id = f.asset_id
+     JOIN products p ON p.id = ap.product_id
+     WHERE p.shopify_id IS NOT NULL
+     GROUP BY p.status
 
+     UNION ALL
+
+     SELECT 'tag'::text, kv.key, kv.value,
+            COUNT(DISTINCT f.asset_id)::int
+     FROM filtered f, jsonb_each_text(f.tags) AS kv(key, value)
+     GROUP BY kv.key, kv.value`,
+    bindings,
+  );
+
+  const assetTypeFacets: FacetValue[] = [];
+  const productStatusFacets: FacetValue[] = [];
   const tagFacets: Record<string, FacetValue[]> = {};
-  for (const row of tagResult.rows) {
-    if (!tagFacets[row.key]) tagFacets[row.key] = [];
-    tagFacets[row.key].push({ value: row.value, count: Number(row.count) });
+
+  for (const row of result.rows) {
+    const count = Number(row.count);
+    if (count === 0) continue;
+    if (row.facet_group === 'type') {
+      assetTypeFacets.push({ value: row.key, count });
+    } else if (row.facet_group === 'ps') {
+      productStatusFacets.push({ value: row.key, count });
+    } else if (row.facet_group === 'tag') {
+      if (!tagFacets[row.key]) tagFacets[row.key] = [];
+      tagFacets[row.key].push({ value: row.subkey!, count });
+    }
   }
 
   return { asset_type: assetTypeFacets, product_status: productStatusFacets, tags: tagFacets };

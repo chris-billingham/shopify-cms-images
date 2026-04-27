@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Asset } from '../types';
 import { apiClient } from '../api/client';
@@ -52,6 +52,8 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
   const [nameDraft, setNameDraft] = useState('');
   const [nameError, setNameError] = useState('');
   const [shopifyRenameQueued, setShopifyRenameQueued] = useState(false);
+  const [replaceStatus, setReplaceStatus] = useState<'idle' | 'replacing' | 'done' | 'error'>('idle');
+  const replaceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedProductSearch(productSearch), 300);
@@ -158,6 +160,38 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
       }
     },
   });
+
+  const replaceFileMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('updatedAt', liveAsset.updated_at);
+      const { data } = await apiClient.post(`/assets/${asset.id}/replace`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return data;
+    },
+    onSuccess: () => {
+      setReplaceStatus('done');
+      queryClient.invalidateQueries({ queryKey: ['asset', asset.id] });
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
+      setTimeout(() => setReplaceStatus('idle'), 3000);
+    },
+    onError: () => {
+      setReplaceStatus('error');
+      setTimeout(() => setReplaceStatus('idle'), 3000);
+    },
+  });
+
+  const handleReplaceFile = () => replaceInputRef.current?.click();
+
+  const handleReplaceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setReplaceStatus('replacing');
+    replaceFileMutation.mutate(file);
+    e.target.value = '';
+  };
 
   const linkProduct = useMutation({
     mutationFn: async (productId: string) => {
@@ -386,6 +420,12 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
             <img
               src={previewSrc}
               alt={asset.file_name}
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            />
+          ) : previewSrc && asset.asset_type === 'video' ? (
+            <video
+              src={previewSrc}
+              controls
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             />
           ) : (
@@ -762,7 +802,23 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
           </button>
         )}
 
-        <button className="btn-sketch ghost">↻ Replace file</button>
+        <input
+          type="file"
+          ref={replaceInputRef}
+          style={{ display: 'none' }}
+          onChange={handleReplaceFileChange}
+          accept="image/*,video/*"
+        />
+        <button
+          className="btn-sketch ghost"
+          onClick={handleReplaceFile}
+          disabled={replaceStatus === 'replacing'}
+        >
+          {replaceStatus === 'replacing' ? 'Replacing…' :
+           replaceStatus === 'done'      ? 'Replaced ✓' :
+           replaceStatus === 'error'     ? 'Replace failed' :
+           '↻ Replace file'}
+        </button>
 
         {canDelete && (
           <button

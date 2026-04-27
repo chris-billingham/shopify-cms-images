@@ -107,8 +107,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <div className="p-6">
-                  <AssetLibrary onAssetClick={setSelectedAsset} />
+                  <AssetLibrary onAssetClick={setSelectedAsset} onCloseDetail={() => setSelectedAsset(null)} />
                 </div>
+                {selectedAsset && !isMobile && (
+                  <div
+                    onClick={() => setSelectedAsset(null)}
+                    style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+                    aria-hidden="true"
+                  />
+                )}
                 {selectedAsset && (
                   <AssetDetailPanel asset={selectedAsset} onClose={() => setSelectedAsset(null)} isMobile={isMobile} />
                 )}

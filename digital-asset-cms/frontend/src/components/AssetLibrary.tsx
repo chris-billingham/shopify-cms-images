@@ -1,7 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { FacetSidebar } from './FacetSidebar';
+import { Lightbox } from './Lightbox';
+import { AssetCard } from './AssetCard';
+import { Pager } from './Pager';
 import { Asset, ActiveFilters, SearchResult } from '../types';
 import { apiClient } from '../api/client';
 import { usePermissions } from '../hooks/usePermissions';
@@ -11,6 +14,7 @@ import { useMobile } from '../hooks/useMobile';
 
 interface AssetLibraryProps {
   onAssetClick?: (asset: Asset) => void;
+  onCloseDetail?: () => void;
 }
 
 const SORT_OPTIONS = [
@@ -62,399 +66,7 @@ async function fetchFacets(query: string, filters: ActiveFilters): Promise<Searc
   return data.facets;
 }
 
-const TYPE_ICON: Record<string, string> = { image: 'img', video: 'vid', text: 'txt', document: 'doc' };
-const THUMB_COLORS = ['#f0c8b4', '#cbdaf0', '#d5e4c8', '#f5e6a8', '#e4d4ea'];
-
-function previewUrl(assetId: string, token: string | null) {
-  return token ? `/api/assets/${assetId}/preview?token=${encodeURIComponent(token)}` : null;
-}
-
-function thumbnailUrl(asset: Asset, token: string | null) {
-  if (!token) return null;
-  const t = encodeURIComponent(token);
-  return asset.thumbnail_url
-    ? `${asset.thumbnail_url}?token=${t}`
-    : `/api/assets/${asset.id}/preview?token=${t}`;
-}
-
-// ── Lightbox ──────────────────────────────────────────────────────────────────
-
-function Lightbox({
-  assets,
-  initialIndex,
-  token,
-  onClose,
-}: {
-  assets: Asset[];
-  initialIndex: number;
-  token: string | null;
-  onClose: () => void;
-}) {
-  const [idx, setIdx] = useState(initialIndex);
-  const asset = assets[idx];
-  const isImage = asset.asset_type === 'image';
-  const src = previewUrl(asset.id, token);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowRight') setIdx((i) => Math.min(i + 1, assets.length - 1));
-      if (e.key === 'ArrowLeft') setIdx((i) => Math.max(i - 1, 0));
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [assets.length, onClose]);
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Image preview"
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 100,
-        background: 'rgba(20, 16, 10, 0.88)',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-      }}
-    >
-      {/* Top bar */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: 'fixed', top: 0, left: 0, right: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 16px',
-          background: 'rgba(20,16,10,0.7)',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 12, color: '#e8e4da',
-        }}
-      >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
-          {asset.file_name}
-          <span style={{ marginLeft: 12, opacity: 0.5 }}>{idx + 1} / {assets.length}</span>
-        </span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <a
-            href={src ?? '#'}
-            download={asset.file_name}
-            onClick={(e) => e.stopPropagation()}
-            style={{ color: '#e8e4da', fontSize: 12, textDecoration: 'underline' }}
-          >
-            ↓ download
-          </a>
-          <button
-            onClick={onClose}
-            aria-label="Close preview"
-            style={{
-              background: 'none', border: 'none', color: '#e8e4da',
-              cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-
-      {/* Image */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '90vw', maxHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >
-        {isImage && src ? (
-          <img
-            key={asset.id}
-            src={src}
-            alt={asset.file_name}
-            style={{ maxWidth: '90vw', maxHeight: '80vh', objectFit: 'contain', display: 'block' }}
-          />
-        ) : (
-          <div style={{
-            width: 300, height: 200, border: '2px dashed rgba(255,255,255,0.2)',
-            display: 'grid', placeItems: 'center',
-            fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'rgba(255,255,255,0.5)',
-          }}>
-            [ {asset.asset_type} — no preview ]
-          </div>
-        )}
-      </div>
-
-      {/* Prev / Next */}
-      {idx > 0 && (
-        <button
-          onClick={(e) => { e.stopPropagation(); setIdx((i) => i - 1); }}
-          aria-label="Previous"
-          style={{
-            position: 'fixed', left: 12, top: '50%', transform: 'translateY(-50%)',
-            background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
-            color: '#fff', fontSize: 22, cursor: 'pointer', padding: '8px 14px',
-          }}
-        >
-          ‹
-        </button>
-      )}
-      {idx < assets.length - 1 && (
-        <button
-          onClick={(e) => { e.stopPropagation(); setIdx((i) => i + 1); }}
-          aria-label="Next"
-          style={{
-            position: 'fixed', right: 12, top: '50%', transform: 'translateY(-50%)',
-            background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
-            color: '#fff', fontSize: 22, cursor: 'pointer', padding: '8px 14px',
-          }}
-        >
-          ›
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ── Asset card ────────────────────────────────────────────────────────────────
-
-function AssetCard({
-  asset,
-  selected,
-  onSelect,
-  onClick,
-  onPreview,
-  index,
-  token,
-}: {
-  asset: Asset;
-  selected: boolean;
-  onSelect: (id: string, checked: boolean) => void;
-  onClick: () => void;
-  onPreview: () => void;
-  index: number;
-  token: string | null;
-}) {
-  const kindLabel = TYPE_ICON[asset.asset_type] ?? asset.asset_type;
-  const hue = THUMB_COLORS[index % THUMB_COLORS.length];
-  const angle = (index * 37) % 180;
-  const skuTag = asset.tags['sku'] ?? asset.tags['SKU'];
-  const fallbackSrc = previewUrl(asset.id, token);
-  const [src, setSrc] = useState(() => thumbnailUrl(asset, token));
-  const assetIdRef = useRef(asset.id);
-  if (assetIdRef.current !== asset.id) {
-    assetIdRef.current = asset.id;
-    setSrc(thumbnailUrl(asset, token));
-  }
-  const isImage = asset.asset_type === 'image';
-
-  return (
-    <div
-      style={{
-        border: '1.5px solid var(--ink)',
-        background: '#fff',
-        boxShadow: '3px 3px 0 var(--shadow)',
-        overflow: 'hidden',
-        position: 'relative',
-        transform: selected ? 'translate(-1px,-1px)' : undefined,
-        outline: selected ? '2px solid var(--accent)' : undefined,
-        outlineOffset: selected ? 2 : undefined,
-        cursor: 'pointer',
-        transition: 'transform 0.1s',
-      }}
-      onClick={onClick}
-    >
-      {/* Checkbox */}
-      <div
-        style={{ position: 'absolute', top: 6, right: 6, zIndex: 2 }}
-        onClick={(e) => { e.stopPropagation(); onSelect(asset.id, !selected); }}
-      >
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={(e) => { e.stopPropagation(); onSelect(asset.id, e.target.checked); }}
-          style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--accent)' }}
-          aria-label={`Select ${asset.file_name}`}
-        />
-      </div>
-
-      {/* Thumbnail */}
-      <div
-        onClick={(e) => { if (isImage && src) { e.stopPropagation(); onPreview(); } }}
-        style={{
-          aspectRatio: '1/1',
-          background: src
-            ? undefined
-            : `repeating-linear-gradient(${angle}deg, ${hue} 0 8px, #fff 8px 16px)`,
-          display: 'grid',
-          placeItems: 'center',
-          position: 'relative',
-          overflow: 'hidden',
-          cursor: isImage && src ? 'zoom-in' : 'pointer',
-        }}
-      >
-        {src ? (
-          <img
-            src={src}
-            alt={asset.file_name}
-            loading="lazy"
-            onError={() => { if (src !== fallbackSrc) setSrc(fallbackSrc); }}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        ) : (
-          <span style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 11,
-            color: 'var(--ink-soft)',
-          }}>
-            {kindLabel}
-          </span>
-        )}
-
-        {/* Type badge */}
-        <span style={{
-          position: 'absolute', top: 6, left: 6,
-          fontSize: 10, padding: '1px 5px',
-          background: 'var(--ink)', color: 'var(--paper)',
-          fontFamily: "'JetBrains Mono', monospace",
-        }}>
-          {kindLabel}
-        </span>
-
-        {/* Zoom hint on hover — images only */}
-        {isImage && src && (
-          <span style={{
-            position: 'absolute', inset: 0,
-            display: 'grid', placeItems: 'center',
-            background: 'rgba(0,0,0,0)',
-            transition: 'background 0.15s',
-            fontSize: 22, color: '#fff',
-            opacity: 0,
-          }}
-          className="thumb-zoom-hint"
-          >
-            ⊕
-          </span>
-        )}
-
-        {/* SKU badge */}
-        {skuTag && (
-          <span style={{
-            position: 'absolute', bottom: 6, right: 6,
-            fontSize: 10, padding: '1px 5px',
-            background: 'var(--green-soft)', color: 'var(--ink)',
-            fontFamily: "'JetBrains Mono', monospace",
-            border: '1px solid var(--ink)',
-          }}>
-            {skuTag}
-          </span>
-        )}
-
-        {/* Shopify image deleted badge */}
-        {asset.shopify_image_deleted && (
-          <span style={{
-            position: 'absolute', bottom: 6, left: 6,
-            fontSize: 10, padding: '1px 5px',
-            background: '#ff4444', color: '#fff',
-            fontFamily: "'JetBrains Mono', monospace",
-          }}>
-            shopify deleted
-          </span>
-        )}
-      </div>
-
-      {/* Meta */}
-      <div style={{
-        padding: '6px 8px',
-        borderTop: '1.5px dashed var(--ink-soft)',
-        fontSize: 12,
-      }}>
-        <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {asset.file_name}
-        </div>
-        {Object.keys(asset.tags).length > 0 && (
-          <div style={{
-            marginTop: 2, fontSize: 10, color: 'var(--ink-soft)',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>
-            {Object.entries(asset.tags).map(([k, v]) => `${k}: ${v}`).join(' · ')}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Pager ─────────────────────────────────────────────────────────────────────
-
-function Pager({ page, total, limit, onChange }: {
-  page: number;
-  total: number;
-  limit: number;
-  onChange: (p: number) => void;
-}) {
-  const totalPages = Math.ceil(total / limit);
-  if (totalPages <= 1) return null;
-
-  const windowSize = 5;
-  const half = Math.floor(windowSize / 2);
-  let start = Math.max(1, page - half);
-  const end = Math.min(totalPages, start + windowSize - 1);
-  if (end - start < windowSize - 1) start = Math.max(1, end - windowSize + 1);
-  const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
-
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 4,
-      marginTop: 20,
-      fontFamily: "'JetBrains Mono', monospace",
-      fontSize: 12,
-    }}>
-      <button
-        className="btn-sketch sm"
-        onClick={() => onChange(page - 1)}
-        disabled={page <= 1}
-      >
-        ← prev
-      </button>
-
-      {start > 1 && (
-        <>
-          <button className="btn-sketch sm" onClick={() => onChange(1)}>1</button>
-          {start > 2 && <span style={{ color: 'var(--ink-soft)', padding: '0 2px' }}>…</span>}
-        </>
-      )}
-
-      {pages.map((p) => (
-        <button
-          key={p}
-          className={`btn-sketch sm${p === page ? ' primary' : ''}`}
-          onClick={() => onChange(p)}
-          aria-current={p === page ? 'page' : undefined}
-        >
-          {p}
-        </button>
-      ))}
-
-      {end < totalPages && (
-        <>
-          {end < totalPages - 1 && <span style={{ color: 'var(--ink-soft)', padding: '0 2px' }}>…</span>}
-          <button className="btn-sketch sm" onClick={() => onChange(totalPages)}>{totalPages}</button>
-        </>
-      )}
-
-      <button
-        className="btn-sketch sm"
-        onClick={() => onChange(page + 1)}
-        disabled={page >= totalPages}
-      >
-        next →
-      </button>
-
-      <span style={{ marginLeft: 8, color: 'var(--ink-soft)' }}>
-        page {page} of {totalPages}
-      </span>
-    </div>
-  );
-}
-
-export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
+export function AssetLibrary({ onAssetClick, onCloseDetail }: AssetLibraryProps) {
   const isMobile = useMobile();
   const { searchQuery, searchInput, filters, sort,
           setSearchQuery, setSearchInput, setFilters, setSort } = useLibraryFilterStore();
@@ -469,12 +81,33 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
   const [bulkLinkSearch, setBulkLinkSearch] = useState('');
   const [debouncedBulkLinkSearch, setDebouncedBulkLinkSearch] = useState('');
   const [bulkLinkResult, setBulkLinkResult] = useState<{ productTitle: string; linked: number; skipped: number } | null>(null);
-  const { canUpload, canLinkProducts } = usePermissions();
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteStatus, setBulkDeleteStatus] = useState<'idle' | 'deleting' | 'done' | 'error'>('idle');
+  const [bulkPushStatus, setBulkPushStatus] = useState<'idle' | 'pushing' | 'done' | 'error'>('idle');
+  const [kbFocusIdx, setKbFocusIdx] = useState<number | null>(null);
+  const [cols, setCols] = useState(4);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  const { canUpload, canLinkProducts, canDelete, canPushToShopify } = usePermissions();
   const token = useAuthStore((s) => s.accessToken);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [bulkDownloadStatus, setBulkDownloadStatus] = useState<'idle' | 'started' | 'error'>('idle');
+
+  // Track grid column count for arrow-key navigation
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const update = () => {
+      const colStr = window.getComputedStyle(el).gridTemplateColumns;
+      setCols(Math.max(1, colStr.split(' ').filter(Boolean).length));
+    };
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    update();
+    return () => ro.disconnect();
+  }, []);
 
   const bulkDownload = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -491,6 +124,47 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
     onError: () => {
       setBulkDownloadStatus('error');
       setTimeout(() => setBulkDownloadStatus('idle'), 4000);
+    },
+  });
+
+  const bulkDelete = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const results = await Promise.allSettled(
+        ids.map((id) => apiClient.delete(`/assets/${id}`)),
+      );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      return { deleted: ids.length - failed, failed };
+    },
+    onSuccess: () => {
+      setBulkDeleteStatus('done');
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
+      setTimeout(() => setBulkDeleteStatus('idle'), 3000);
+    },
+    onError: () => {
+      setBulkDeleteStatus('error');
+      setBulkDeleteConfirm(false);
+      setTimeout(() => setBulkDeleteStatus('idle'), 3000);
+    },
+  });
+
+  const bulkPush = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const results = await Promise.allSettled(
+        ids.map((id) => apiClient.post(`/shopify/push/${id}`)),
+      );
+      const pushed = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      return { pushed, failed };
+    },
+    onSuccess: () => {
+      setBulkPushStatus('done');
+      setTimeout(() => setBulkPushStatus('idle'), 4000);
+    },
+    onError: () => {
+      setBulkPushStatus('error');
+      setTimeout(() => setBulkPushStatus('idle'), 4000);
     },
   });
 
@@ -546,9 +220,10 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
     },
   });
 
-  const { data, isLoading, isError, dataUpdatedAt } = useQuery({
+  const { data, isLoading, isFetching, isError, dataUpdatedAt } = useQuery({
     queryKey: ['assets', 'search', searchQuery, filters, sort, page],
     queryFn: () => fetchAssets(searchQuery, filters, sort, page),
+    placeholderData: keepPreviousData,
   });
 
   const { data: facets } = useQuery({
@@ -569,11 +244,48 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
     e.preventDefault();
     setPage(1);
     setSearchQuery(searchInput);
+    setKbFocusIdx(null);
+    onCloseDetail?.();
   };
 
   const handleFilterChange = (next: ActiveFilters) => {
     setPage(1);
     setFilters(next);
+    setKbFocusIdx(null);
+    onCloseDetail?.();
+  };
+
+  const changePage = (p: number) => {
+    setPage(p);
+    setKbFocusIdx(null);
+    onCloseDetail?.();
+  };
+
+  const handleGridKeyDown = (e: React.KeyboardEvent) => {
+    const total = data?.assets.length ?? 0;
+    if (total === 0) return;
+
+    const go = (next: number) => {
+      e.preventDefault();
+      setKbFocusIdx(Math.max(0, Math.min(next, total - 1)));
+    };
+
+    if (e.key === 'ArrowRight') return go((kbFocusIdx ?? -1) + 1);
+    if (e.key === 'ArrowLeft')  return go((kbFocusIdx ?? 1) - 1);
+    if (e.key === 'ArrowDown')  return go((kbFocusIdx ?? -cols) + cols);
+    if (e.key === 'ArrowUp')    return go((kbFocusIdx ?? cols) - cols);
+
+    if (e.key === 'Enter' && kbFocusIdx !== null) {
+      e.preventDefault();
+      const asset = data?.assets[kbFocusIdx];
+      if (asset) onAssetClick?.(asset);
+    }
+    if (e.key === ' ' && kbFocusIdx !== null) {
+      e.preventDefault();
+      const asset = data?.assets[kbFocusIdx];
+      if (asset) handleSelect(asset.id, !selectedIds.has(asset.id));
+    }
+    if (e.key === 'Escape') setKbFocusIdx(null);
   };
 
   const [now, setNow] = useState(Date.now());
@@ -655,10 +367,49 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
                 ? '↓ download failed'
                 : '↓ bulk download'}
             </button>
-            <button className="btn-sketch sm" disabled title="Not yet implemented" style={{ opacity: 0.4 }}>push to shopify</button>
+            {canPushToShopify && (
+              <button
+                className="btn-sketch sm"
+                onClick={() => { setBulkPushStatus('pushing'); bulkPush.mutate([...selectedIds]); }}
+                disabled={bulkPush.isPending}
+              >
+                {bulkPush.isPending || bulkPushStatus === 'pushing'
+                  ? '▲ pushing…'
+                  : bulkPushStatus === 'done'
+                  ? '▲ pushed ✓'
+                  : bulkPushStatus === 'error'
+                  ? '▲ push failed'
+                  : '▲ push to shopify'}
+              </button>
+            )}
+            {canDelete && (
+              <button
+                className={`btn-sketch sm ${bulkDeleteConfirm ? 'primary' : 'danger'}`}
+                onClick={() => {
+                  if (!bulkDeleteConfirm) {
+                    setBulkDeleteConfirm(true);
+                    setTimeout(() => setBulkDeleteConfirm(false), 4000);
+                  } else {
+                    setBulkDeleteStatus('deleting');
+                    bulkDelete.mutate([...selectedIds]);
+                  }
+                }}
+                disabled={bulkDelete.isPending}
+              >
+                {bulkDelete.isPending
+                  ? 'deleting…'
+                  : bulkDeleteStatus === 'done'
+                  ? 'deleted ✓'
+                  : bulkDeleteStatus === 'error'
+                  ? 'delete failed'
+                  : bulkDeleteConfirm
+                  ? `confirm delete ${selectedIds.size}`
+                  : 'delete'}
+              </button>
+            )}
             <span
               style={{ marginLeft: 'auto', opacity: 0.7, cursor: 'pointer', fontSize: 12 }}
-              onClick={() => setSelectedIds(new Set())}
+              onClick={() => { setSelectedIds(new Set()); setBulkDeleteConfirm(false); }}
             >
               clear selection
             </span>
@@ -765,17 +516,10 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
                 />
                 {bulkLinkSearch.length > 0 && bulkLinkProducts && bulkLinkProducts.length > 0 && (
                   <ul style={{
-                    position: 'absolute',
-                    zIndex: 20,
-                    width: '100%',
-                    marginTop: 2,
-                    background: '#fff',
-                    border: '1.5px solid var(--ink)',
-                    boxShadow: '3px 3px 0 var(--shadow)',
-                    maxHeight: 200,
-                    overflowY: 'auto',
-                    listStyle: 'none',
-                    padding: 0,
+                    position: 'absolute', zIndex: 20, width: '100%', marginTop: 2,
+                    background: '#fff', border: '1.5px solid var(--ink)',
+                    boxShadow: '3px 3px 0 var(--shadow)', maxHeight: 200,
+                    overflowY: 'auto', listStyle: 'none', padding: 0,
                   }}>
                     {bulkLinkProducts.map((product) => (
                       <li key={product.id}>
@@ -783,15 +527,9 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
                           onClick={() => bulkLink.mutate({ productId: product.id, assetIds: [...selectedIds] })}
                           disabled={bulkLink.isPending}
                           style={{
-                            width: '100%',
-                            textAlign: 'left',
-                            padding: '6px 10px',
-                            fontSize: 13,
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontFamily: "'Architects Daughter', sans-serif",
-                            color: 'var(--ink)',
+                            width: '100%', textAlign: 'left', padding: '6px 10px', fontSize: 13,
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            fontFamily: "'Architects Daughter', sans-serif", color: 'var(--ink)',
                             borderBottom: '1px dashed var(--ink-soft)',
                           }}
                         >
@@ -806,15 +544,9 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
                 )}
                 {bulkLinkSearch.length > 0 && bulkLinkProducts?.length === 0 && (
                   <div style={{
-                    position: 'absolute',
-                    zIndex: 20,
-                    width: '100%',
-                    marginTop: 2,
-                    background: '#fff',
-                    border: '1.5px solid var(--ink)',
-                    padding: '8px 10px',
-                    fontSize: 13,
-                    color: 'var(--ink-soft)',
+                    position: 'absolute', zIndex: 20, width: '100%', marginTop: 2,
+                    background: '#fff', border: '1.5px solid var(--ink)',
+                    padding: '8px 10px', fontSize: 13, color: 'var(--ink-soft)',
                   }}>
                     No products found.
                   </div>
@@ -857,14 +589,9 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
                   setPage(1);
                 }}
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0 2px',
-                  color: 'var(--ink-soft)',
-                  fontSize: 16,
-                  lineHeight: 1,
-                  flexShrink: 0,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  padding: '0 2px', color: 'var(--ink-soft)', fontSize: 16,
+                  lineHeight: 1, flexShrink: 0,
                 }}
               >
                 ✕
@@ -918,10 +645,11 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
             />
             {data.total.toLocaleString()} results
             {refreshedAgo !== null && ` · refreshed ${refreshedAgo}s ago`}
+            {isFetching && <span style={{ marginLeft: 6, opacity: 0.5 }}>…</span>}
           </div>
         )}
 
-        {isLoading && (
+        {isLoading && !data && (
           <div style={{ color: 'var(--ink-soft)', fontSize: 14 }} role="status">
             Loading…
           </div>
@@ -944,12 +672,21 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
 
         {data && data.assets.length > 0 && (
           <div
+            ref={gridRef}
+            tabIndex={0}
+            onKeyDown={handleGridKeyDown}
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setKbFocusIdx(null);
+            }}
             style={{
               display: 'grid',
               gridTemplateColumns: isMobile
                 ? 'repeat(auto-fill, minmax(110px, 1fr))'
                 : 'repeat(auto-fill, minmax(150px, 1fr))',
               gap: isMobile ? 10 : 14,
+              opacity: isFetching ? 0.6 : 1,
+              transition: 'opacity 0.15s',
+              outline: 'none',
             }}
             role="list"
             aria-label="Asset grid"
@@ -959,8 +696,9 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
                 <AssetCard
                   asset={asset}
                   selected={selectedIds.has(asset.id)}
+                  focused={kbFocusIdx === i}
                   onSelect={handleSelect}
-                  onClick={() => onAssetClick?.(asset)}
+                  onClick={() => { onAssetClick?.(asset); setKbFocusIdx(null); }}
                   onPreview={() => setPreviewIndex(i)}
                   index={i}
                   token={token}
@@ -975,7 +713,7 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
             page={data.page}
             total={data.total}
             limit={data.limit}
-            onChange={setPage}
+            onChange={changePage}
           />
         )}
       </div>
@@ -1002,12 +740,7 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
           <div className="filter-sheet-handle" />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <span style={{ fontFamily: "'Caveat', cursive", fontSize: 20 }}>Filters</span>
-            <button
-              className="btn-sketch sm"
-              onClick={() => setFilterSheetOpen(false)}
-            >
-              done
-            </button>
+            <button className="btn-sketch sm" onClick={() => setFilterSheetOpen(false)}>done</button>
           </div>
           <FacetSidebar
             facets={facets ?? data?.facets ?? {}}

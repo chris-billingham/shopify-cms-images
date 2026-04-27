@@ -30,6 +30,20 @@ import { checkIdempotencyKey, storeIdempotencyResult } from '../utils/idempotenc
 import { submitBulkDownload, processBulkDownload, BulkDownloadError } from '../jobs/bulk-download.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, bulkRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 
+// Cache user active-status for 2 minutes to avoid a DB lookup on every thumbnail/preview request.
+const userStatusCache = new Map<string, { active: boolean; expiresAt: number }>();
+const USER_STATUS_TTL_MS = 2 * 60 * 1000;
+
+async function isUserActive(userId: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = userStatusCache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.active;
+  const user = await db('users').where('id', userId).first();
+  const active = !!user && user.status === 'active';
+  userStatusCache.set(userId, { active, expiresAt: now + USER_STATUS_TTL_MS });
+  return active;
+}
+
 const assetsRoutes: FastifyPluginAsync = async (fastify) => {
   // Rate limit CRUD: 120 req/min per user (keyed by user_id from JWT, or IP)
   await fastify.register(fastifyRateLimit, {
@@ -403,8 +417,7 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
     }
 
-    const user = await db('users').where('id', payload.user_id).first();
-    if (!user || user.status !== 'active') {
+    if (!await isUserActive(payload.user_id)) {
       return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'User account is deactivated' } });
     }
 
@@ -450,8 +463,7 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
     }
 
-    const user = await db('users').where('id', payload.user_id).first();
-    if (!user || user.status !== 'active') {
+    if (!await isUserActive(payload.user_id)) {
       return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'User account is deactivated' } });
     }
 
