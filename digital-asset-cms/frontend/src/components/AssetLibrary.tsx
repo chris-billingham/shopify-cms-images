@@ -584,6 +584,29 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
 
   const refreshedAgo = dataUpdatedAt ? Math.round((now - dataUpdatedAt) / 1000) : null;
 
+  const pageIds = data?.assets.map((a) => a.id) ?? [];
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const someOnPageSelected = pageIds.some((id) => selectedIds.has(id));
+
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someOnPageSelected && !allOnPageSelected;
+    }
+  }, [someOnPageSelected, allOnPageSelected]);
+
+  const handleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        pageIds.forEach((id) => next.delete(id));
+      } else {
+        pageIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
   const activeFilterCount =
     (filters.type ? 1 : 0) +
     (filters.product_status ? 1 : 0) +
@@ -824,6 +847,29 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder={isMobile ? 'Search…' : 'Search file names, SKUs, product titles, tag values…'}
             />
+            {searchInput && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => {
+                  setSearchInput('');
+                  setSearchQuery('');
+                  setPage(1);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0 2px',
+                  color: 'var(--ink-soft)',
+                  fontSize: 16,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           {isMobile && (
@@ -859,9 +905,17 @@ export function AssetLibrary({ onAssetClick }: AssetLibraryProps) {
           )}
         </form>
 
-        {/* Result count */}
+        {/* Result count + select all */}
         {data && (
-          <div className="muted-label" style={{ marginBottom: 8 }}>
+          <div className="muted-label" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allOnPageSelected}
+              onChange={handleSelectAll}
+              style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--accent)', flexShrink: 0 }}
+              aria-label="Select all on this page"
+            />
             {data.total.toLocaleString()} results
             {refreshedAgo !== null && ` · refreshed ${refreshedAgo}s ago`}
           </div>
