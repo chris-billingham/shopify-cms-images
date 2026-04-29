@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "vitest": "*"
+    "vitest": "^2.x"
   },
   "scripts": {
     "test:docker": "vitest run --config tests/docker/vitest.config.ts"

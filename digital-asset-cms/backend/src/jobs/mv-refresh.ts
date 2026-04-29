@@ -1,4 +1,4 @@
-import { Queue, Worker, QueueEvents } from 'bullmq';
+import { Queue, Worker, QueueEvents, type ConnectionOptions } from 'bullmq';
 import IORedis from 'ioredis';
 import { db } from '../db/connection.js';
 import { config } from '../config/index.js';
@@ -14,18 +14,16 @@ export async function processMvRefresh(): Promise<void> {
 }
 
 export function createMvRefreshQueue(connection: IORedis): Queue {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new Queue(MV_REFRESH_QUEUE, { connection: connection as any });
+  // IORedis satisfies ConnectionOptions at runtime; types diverge slightly across package versions
+  return new Queue(MV_REFRESH_QUEUE, { connection: connection as unknown as ConnectionOptions });
 }
 
 export function createMvRefreshWorker(connection: IORedis): Worker {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new Worker(MV_REFRESH_QUEUE, processMvRefresh, { connection: connection as any });
+  return new Worker(MV_REFRESH_QUEUE, processMvRefresh, { connection: connection as unknown as ConnectionOptions });
 }
 
 export function createMvRefreshQueueEvents(connection: IORedis): QueueEvents {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new QueueEvents(MV_REFRESH_QUEUE, { connection: connection as any });
+  return new QueueEvents(MV_REFRESH_QUEUE, { connection: connection as unknown as ConnectionOptions });
 }
 
 // Registers the 60-second repeating job — call once at app startup

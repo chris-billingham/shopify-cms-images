@@ -228,7 +228,7 @@ async function computeFacets(
        FROM asset_search_mv m
        WHERE TRUE ${andStr}
      )
-     SELECT 'type'::text AS facet_group, asset_type AS key, NULL::text AS subkey,
+     SELECT 'type'::text AS facet_group, asset_type::text AS key, NULL::text AS subkey,
             COUNT(DISTINCT asset_id)::int AS count
      FROM filtered
      GROUP BY asset_type
@@ -253,7 +253,7 @@ async function computeFacets(
 
      UNION ALL
 
-     SELECT 'ps'::text, p.status, NULL,
+     SELECT 'ps'::text, p.status::text, NULL,
             COUNT(DISTINCT f.asset_id)::int
      FROM filtered f
      JOIN asset_products ap ON ap.asset_id = f.asset_id

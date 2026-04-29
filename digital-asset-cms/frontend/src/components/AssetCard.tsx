@@ -42,8 +42,13 @@ export function AssetCard({
   const fallbackSrc = previewUrl(asset.id, token);
   const [src, setSrc] = useState(() => thumbnailUrl(asset, token));
   const assetIdRef = useRef(asset.id);
+  const tokenRef = useRef(token);
   if (assetIdRef.current !== asset.id) {
     assetIdRef.current = asset.id;
+    tokenRef.current = token;
+    setSrc(thumbnailUrl(asset, token));
+  } else if (tokenRef.current !== token) {
+    tokenRef.current = token;
     setSrc(thumbnailUrl(asset, token));
   }
   const isImage = asset.asset_type === 'image';

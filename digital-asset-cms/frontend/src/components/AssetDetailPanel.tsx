@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Asset } from '../types';
 import { apiClient } from '../api/client';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../stores/authStore';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface AssetDetailPanelProps {
   asset: Asset;
@@ -40,7 +41,6 @@ interface Product {
 export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelProps) {
   const [conflictError, setConflictError] = useState(false);
   const [productSearch, setProductSearch] = useState('');
-  const [debouncedProductSearch, setDebouncedProductSearch] = useState('');
   const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'done' | 'error'>('idle');
   const [pushAltStatus, setPushAltStatus] = useState<'idle' | 'pushing' | 'done' | 'error'>('idle');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -55,10 +55,7 @@ export function AssetDetailPanel({ asset, onClose, isMobile }: AssetDetailPanelP
   const [replaceStatus, setReplaceStatus] = useState<'idle' | 'replacing' | 'done' | 'error'>('idle');
   const replaceInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedProductSearch(productSearch), 300);
-    return () => clearTimeout(t);
-  }, [productSearch]);
+  const debouncedProductSearch = useDebounce(productSearch, 300);
 
   const queryClient = useQueryClient();
   const { canEditTags, canDelete, canLinkProducts, canPushToShopify } = usePermissions();

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { db } from '../db/connection.js';
 import { hashPassword, verifyPassword, invalidateUserRefreshTokens } from '../services/auth.service.js';
+import { streamToBuffer } from '../utils/stream.js';
 import path from 'path';
 import { promises as fsp } from 'fs';
 import sharp from 'sharp';
@@ -70,11 +71,7 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'File must be an image (jpeg, png, webp, gif)' } });
     }
 
-    const chunks: Buffer[] = [];
-    for await (const chunk of data.file) {
-      chunks.push(chunk as Buffer);
-    }
-    const buffer = Buffer.concat(chunks);
+    const buffer = await streamToBuffer(data.file);
 
     const userId = request.user!.user_id;
     const filename = `${userId}-${Date.now()}.jpg`;

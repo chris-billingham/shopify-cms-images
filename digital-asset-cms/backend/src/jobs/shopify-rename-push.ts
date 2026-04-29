@@ -1,4 +1,4 @@
-import { Readable } from 'stream';
+import { streamToBuffer } from '../utils/stream.js';
 import { db } from '../db/connection.js';
 import { createShopifyService, getActiveShopifyCredentials, type ShopifyService } from '../services/shopify.service.js';
 import { driveService as defaultDriveService, type DriveService } from '../services/drive.service.js';
@@ -33,12 +33,7 @@ export async function runShopifyRenamePush(
 
     const svc = shopify ?? createShopifyService(await getActiveShopifyCredentials());
 
-    const stream = await drive.downloadFile(asset.google_drive_id as string);
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(chunk as Buffer);
-    }
-    const buffer = Buffer.concat(chunks);
+    const buffer = await streamToBuffer(await drive.downloadFile(asset.google_drive_id as string));
 
     const oldShopifyImageId = asset.shopify_image_id as string;
     const shopifyProductId = String(link.shopify_id);

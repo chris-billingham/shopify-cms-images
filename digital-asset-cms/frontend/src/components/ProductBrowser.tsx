@@ -5,6 +5,7 @@ import { apiClient } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useProductFilterStore } from '../stores/filterStore';
+import { useDebounce } from '../hooks/useDebounce';
 
 const PRODUCT_PAGE_SIZE = 50;
 
@@ -272,20 +273,16 @@ export function ProductBrowser() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const { search, vendorFilter, categoryFilter, statusFilter, sort,
           setSearch, setVendorFilter, setCategoryFilter, setStatusFilter, setSort } = useProductFilterStore();
-  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const debouncedSearch = useDebounce(search, 300);
   const [page, setPage] = useState(1);
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
   const [showImportOptions, setShowImportOptions] = useState(false);
   const [importStatuses, setImportStatuses] = useState<string[]>(['active']);
 
-  // Debounce text search — only send to server 300ms after typing stops
+  // Reset page when search changes after debounce
   useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [search]);
+    setPage(1);
+  }, [debouncedSearch]);
 
   // Reset page when any filter or sort changes
   useEffect(() => {

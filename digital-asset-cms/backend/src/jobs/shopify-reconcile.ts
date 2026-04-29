@@ -1,5 +1,6 @@
 import path from 'path';
 import { Readable } from 'stream';
+import { streamToBuffer } from '../utils/stream.js';
 import { db } from '../db/connection.js';
 import { shopifyService as defaultShopifyService, type ShopifyService } from '../services/shopify.service.js';
 import { driveService as defaultDriveService, type DriveService } from '../services/drive.service.js';
@@ -111,12 +112,7 @@ export async function runImportImages(
           continue;
         }
 
-        const imageStream = await shopify.fetchImageStream(image.src);
-        const chunks: Buffer[] = [];
-        for await (const chunk of imageStream) {
-          chunks.push(chunk as Buffer);
-        }
-        const buffer = Buffer.concat(chunks);
+        const buffer = await streamToBuffer(await shopify.fetchImageStream(image.src));
 
         const { id: driveId, webViewLink } = await drive.uploadFile(
           Readable.from(buffer),

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { FacetSidebar } from './FacetSidebar';
 import { Lightbox } from './Lightbox';
@@ -11,6 +11,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../stores/authStore';
 import { useLibraryFilterStore } from '../stores/filterStore';
 import { useMobile } from '../hooks/useMobile';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface AssetLibraryProps {
   onAssetClick?: (asset: Asset) => void;
@@ -70,7 +71,16 @@ export function AssetLibrary({ onAssetClick, onCloseDetail }: AssetLibraryProps)
   const isMobile = useMobile();
   const { searchQuery, searchInput, filters, sort,
           setSearchQuery, setSearchInput, setFilters, setSort } = useLibraryFilterStore();
-  const [page, setPage] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = parseInt(searchParams.get('page') ?? '1', 10);
+  const setPage = useCallback((p: number) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (p === 1) next.delete('page');
+      else next.set('page', String(p));
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
@@ -79,7 +89,6 @@ export function AssetLibrary({ onAssetClick, onCloseDetail }: AssetLibraryProps)
   const [bulkTagValue, setBulkTagValue] = useState('');
   const [showBulkLink, setShowBulkLink] = useState(false);
   const [bulkLinkSearch, setBulkLinkSearch] = useState('');
-  const [debouncedBulkLinkSearch, setDebouncedBulkLinkSearch] = useState('');
   const [bulkLinkResult, setBulkLinkResult] = useState<{ productTitle: string; linked: number; skipped: number } | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkDeleteStatus, setBulkDeleteStatus] = useState<'idle' | 'deleting' | 'done' | 'error'>('idle');
@@ -176,10 +185,7 @@ export function AssetLibrary({ onAssetClick, onCloseDetail }: AssetLibraryProps)
     },
   });
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedBulkLinkSearch(bulkLinkSearch), 300);
-    return () => clearTimeout(t);
-  }, [bulkLinkSearch]);
+  const debouncedBulkLinkSearch = useDebounce(bulkLinkSearch, 300);
 
   const { data: bulkLinkProducts } = useQuery({
     queryKey: ['products-search-bulk', debouncedBulkLinkSearch],

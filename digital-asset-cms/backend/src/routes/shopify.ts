@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
+import { streamToBuffer } from '../utils/stream.js';
 import { db } from '../db/connection.js';
 import { driveService } from '../services/drive.service.js';
 import { createShopifyService, getActiveShopifyCredentials } from '../services/shopify.service.js';
@@ -141,12 +142,7 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Download from Drive
-      const stream = await driveService.downloadFile(asset.google_drive_id as string);
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) {
-        chunks.push(chunk as Buffer);
-      }
-      const buffer = Buffer.concat(chunks);
+      const buffer = await streamToBuffer(await driveService.downloadFile(asset.google_drive_id as string));
 
       // Push to Shopify using current credentials
       const creds = await getActiveShopifyCredentials();

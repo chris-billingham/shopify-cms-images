@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { streamToBuffer } from '../utils/stream.js';
 import { verifyAccessToken } from '../services/auth.service.js';
 import { db } from '../db/connection.js';
 import { config } from '../config/index.js';
@@ -262,12 +263,7 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(400).send({ error: { code: 'NO_FILE', message: 'No file provided in multipart body' } });
       }
 
-      // Collect file bytes
-      const chunks: Buffer[] = [];
-      for await (const chunk of part.file) {
-        chunks.push(chunk as Buffer);
-      }
-      const buffer = Buffer.concat(chunks);
+      const buffer = await streamToBuffer(part.file);
 
       // Parse optional tags from form fields
       let tags: Record<string, string> | undefined;
@@ -402,7 +398,9 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // ── GET /api/assets/:id/thumbnail — serve cached thumbnail from disk ─────
-  fastify.get('/:id/thumbnail', async (request, reply) => {
+  // Exempt from route-level rate limit: each page load fires ~50 concurrent requests;
+  // JWT token auth is sufficient protection.
+  fastify.get('/:id/thumbnail', { config: { rateLimit: false } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { token } = request.query as { token?: string };
 
@@ -448,7 +446,7 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── GET /api/assets/:id/preview?token= — inline image stream ─────────────
   // Accepts token as query param so <img src> tags can authenticate.
-  fastify.get('/:id/preview', async (request, reply) => {
+  fastify.get('/:id/preview', { config: { rateLimit: false } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { token } = request.query as { token?: string };
 
@@ -492,11 +490,7 @@ const assetsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(400).send({ error: { code: 'NO_FILE', message: 'No file provided in multipart body' } });
       }
 
-      const chunks: Buffer[] = [];
-      for await (const chunk of part.file) {
-        chunks.push(chunk as Buffer);
-      }
-      const buffer = Buffer.concat(chunks);
+      const buffer = await streamToBuffer(part.file);
 
       try {
         const newAsset = await replaceAsset(
