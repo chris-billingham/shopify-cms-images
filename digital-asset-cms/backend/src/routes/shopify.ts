@@ -3,6 +3,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 import { streamToBuffer } from '../utils/stream.js';
+import { checkIdempotencyKey, storeIdempotencyResult } from '../utils/idempotency.js';
 import { db } from '../db/connection.js';
 import { driveService } from '../services/drive.service.js';
 import { createShopifyService, getActiveShopifyCredentials } from '../services/shopify.service.js';
@@ -238,6 +239,13 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Invalid HMAC signature' } });
       }
 
+      // Deduplicate using Shopify's webhook ID (24h window via Redis)
+      const webhookId = request.headers['x-shopify-webhook-id'] as string | undefined;
+      if (webhookId) {
+        const cached = await checkIdempotencyKey(`webhook:${webhookId}`);
+        if (cached) return reply.status(cached.statusCode).send(cached.body);
+      }
+
       let payload: Record<string, unknown>;
       try {
         payload = JSON.parse(rawBody.toString()) as Record<string, unknown>;
@@ -260,6 +268,9 @@ const shopifyRoutes: FastifyPluginAsync = async (fastify) => {
         await db('products').where('shopify_id', shopifyId).update({ status: 'deleted' });
       }
 
+      if (webhookId) {
+        await storeIdempotencyResult(`webhook:${webhookId}`, 200, { ok: true });
+      }
       return reply.status(200).send({ ok: true });
     });
   });

@@ -21,6 +21,12 @@ const COOKIE_OPTIONS = {
 };
 
 const authRoutes: FastifyPluginAsync = async (fastify) => {
+  // GET /api/auth/csrf-token — generate a CSRF token for the session (public, pre-auth)
+  fastify.get('/csrf-token', async (_request, reply) => {
+    const token = await reply.generateCsrf();
+    return reply.send({ token });
+  });
+
   // Rate limiting scoped to auth routes: 10 req/min per IP (§5.2)
   await fastify.register(fastifyRateLimit, {
     max: 10,
@@ -80,6 +86,12 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       });
       const payload = ticket.getPayload();
       if (!payload?.email) throw new Error('No email in token');
+      const domain = payload.email.split('@')[1];
+      if (domain !== config.ALLOWED_GOOGLE_DOMAIN) {
+        return reply.status(403).send({
+          error: { code: 'DOMAIN_NOT_PERMITTED', message: 'Email domain not permitted' },
+        });
+      }
       email = payload.email;
       name = payload.name ?? email;
     } catch {

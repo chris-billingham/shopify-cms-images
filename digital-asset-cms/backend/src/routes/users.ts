@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
+import fastifyRateLimit from '@fastify/rate-limit';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { rateLimitErrorBuilder, crudRateLimitKey, RATE_LIMIT_HEADERS } from '../utils/rate-limit.js';
 import { db } from '../db/connection.js';
 import { hashPassword, verifyPassword, invalidateUserRefreshTokens } from '../services/auth.service.js';
 import { streamToBuffer } from '../utils/stream.js';
@@ -13,6 +15,14 @@ const USER_COLS = ['id', 'email', 'name', 'role', 'status', 'avatar_url', 'creat
 
 const usersRoutes: FastifyPluginAsync = async (fastify) => {
   await fsp.mkdir(AVATARS_DIR, { recursive: true });
+
+  await fastify.register(fastifyRateLimit, {
+    max: 30,
+    timeWindow: '1 minute',
+    keyGenerator: crudRateLimitKey,
+    errorResponseBuilder: rateLimitErrorBuilder,
+    addHeaders: RATE_LIMIT_HEADERS,
+  });
 
   const adminOnly = [authenticate, requireRole('admin')];
 
@@ -108,8 +118,8 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
     if (!currentPassword || !newPassword) {
       return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'currentPassword and newPassword are required' } });
     }
-    if (newPassword.length < 8) {
-      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'New password must be at least 8 characters' } });
+    if (newPassword.length < 12) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'New password must be at least 12 characters' } });
     }
 
     const user = await db('users').where('id', request.user!.user_id).first();
@@ -150,6 +160,12 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
     if (!email || !name || !role || !password) {
       return reply.status(400).send({
         error: { code: 'VALIDATION_ERROR', message: 'email, name, role, and password are required' },
+      });
+    }
+
+    if (password.length < 12) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: 'Password must be at least 12 characters' },
       });
     }
 

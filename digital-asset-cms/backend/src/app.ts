@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import Fastify, { type FastifyRequest, type FastifyReply } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
+import fastifyCsrfProtection from '@fastify/csrf-protection';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyWebsocket from '@fastify/websocket';
 import jwt from 'jsonwebtoken';
@@ -21,7 +22,19 @@ import { handleConnection } from './websocket/handler.js';
 import { config } from './config/index.js';
 
 export function buildApp() {
+  // Mutations exempt from CSRF: pre-auth endpoints and HMAC-verified webhooks
+  const CSRF_EXEMPT = new Set([
+    '/api/auth/login',
+    '/api/auth/google',
+    '/api/auth/refresh',
+    '/api/auth/logout',
+    '/api/auth/csrf-token',
+    '/api/shopify/webhooks',
+    '/api/health',
+  ]);
+
   const app = Fastify({
+    bodyLimit: 1 * 1024 * 1024, // 1 MB default for JSON payloads; multipart overrides this per-route
     logger:
       process.env['NODE_ENV'] !== 'test'
         ? {
@@ -44,9 +57,26 @@ export function buildApp() {
 
   app.register(fastifyCookie);
 
+  app.register(fastifyCsrfProtection, {
+    sessionPlugin: '@fastify/cookie',
+    cookieOpts: {
+      path: '/',
+      sameSite: 'strict' as const,
+      secure: process.env['NODE_ENV'] === 'production',
+    },
+  });
+
   app.register(fastifyCors, {
     origin: config.FRONTEND_ORIGIN,
     credentials: true,
+  });
+
+  // CSRF validation on all mutating requests except exempt endpoints
+  app.addHook('preHandler', (request, reply, done) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return done();
+    const path = request.url.split('?')[0];
+    if (CSRF_EXEMPT.has(path)) return done();
+    return app.csrfProtection(request, reply, done);
   });
 
   // Multipart support for file uploads (1 GB max — per-MIME limits enforced in service)

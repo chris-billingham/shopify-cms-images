@@ -20,6 +20,7 @@
   "dependencies": {
     "@fastify/cookie": "^11.x",
     "@fastify/cors": "^10.x",
+    "@fastify/csrf-protection": "^7.1.0",
     "@fastify/multipart": "^9.x",
     "@fastify/rate-limit": "^10.x",
     "@fastify/websocket": "^11.x",

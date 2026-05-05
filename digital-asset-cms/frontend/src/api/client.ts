@@ -8,8 +8,19 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
-// Bare instance for refresh calls — same baseURL, no interceptors to avoid loops
+// Bare instance for refresh/csrf calls — no interceptors to avoid loops
 const refreshAxios = axios.create({ baseURL: '/api', withCredentials: true });
+
+let csrfToken: string | null = null;
+
+export function clearCsrfToken() {
+  csrfToken = null;
+}
+
+async function fetchCsrfToken(): Promise<void> {
+  const { data } = await refreshAxios.get<{ token: string }>('/auth/csrf-token');
+  csrfToken = data.token;
+}
 
 // State for queuing concurrent 401s
 let isRefreshing = false;
@@ -31,17 +42,23 @@ export function __resetRefreshState() {
 }
 
 function redirectToLogin() {
+  csrfToken = null;
   setAccessToken(null);
   if (typeof window !== 'undefined') {
     window.location.href = '/login';
   }
 }
 
-// Attach bearer token from in-memory store
-apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+// Attach bearer token and CSRF token
+apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const token = getAccessToken();
   if (token) {
     config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  const mutating = ['post', 'put', 'patch', 'delete'];
+  if (mutating.includes((config.method ?? '').toLowerCase())) {
+    if (!csrfToken) await fetchCsrfToken();
+    config.headers['X-CSRF-Token'] = csrfToken!;
   }
   return config;
 });

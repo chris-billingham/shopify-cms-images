@@ -24,6 +24,7 @@ const configSchema = z.object({
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   GOOGLE_OAUTH_CLIENT_ID: z.string().min(1, 'GOOGLE_OAUTH_CLIENT_ID is required'),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1, 'GOOGLE_OAUTH_CLIENT_SECRET is required'),
+  ALLOWED_GOOGLE_DOMAIN: z.string().min(1, 'ALLOWED_GOOGLE_DOMAIN is required'),
 
   // App (REQUIRED)
   APP_URL: z.string().url('APP_URL must be a valid URL'),
@@ -55,6 +56,10 @@ const configSchema = z.object({
 
   // Initial Admin Seeding (OPTIONAL)
   SEED_ADMIN_EMAIL: z.string().email().optional(),
+
+  // Settings encryption (REQUIRED) — 64 hex chars = 32-byte AES-256 key
+  // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  SETTINGS_ENCRYPTION_KEY: z.string().length(64, 'SETTINGS_ENCRYPTION_KEY must be 64 hex characters (32 bytes)'),
 
   // Monitoring (OPTIONAL)
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
